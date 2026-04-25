@@ -13,8 +13,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.frozen import FrozenEstimator
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
@@ -230,6 +232,20 @@ def compute_metrics(y_true: pd.Series, y_proba: np.ndarray) -> tuple[float, floa
     auroc = roc_auc_score(y_true, y_proba)
     brier = brier_score_loss(y_true, y_proba)
     return float(average_precision), float(auroc), float(brier)
+
+
+def fit_isotonic_calibrator(
+    fitted_model: Any,
+    x_calibration: pd.DataFrame,
+    y_calibration: pd.Series,
+) -> CalibratedClassifierCV:
+    calibrator = CalibratedClassifierCV(
+        estimator=FrozenEstimator(fitted_model),
+        method="isotonic",
+        cv=None,
+    )
+    calibrator.fit(x_calibration, y_calibration)
+    return calibrator
 
 
 def batched_predict_proba(pipeline: Any, x: pd.DataFrame, batch_size: int = 128) -> np.ndarray:
@@ -455,8 +471,12 @@ def evaluate_model(
     val_average_precision, val_auroc, val_brier_score = compute_metrics(y_val, val_proba)
 
     if model_name == "catboost":
+        val_inputs = to_catboost_frame(x_val, categorical_cols)
         test_inputs = to_catboost_frame(x_test, categorical_cols)
-        test_proba = fitted_model.predict_proba(test_inputs)[:, 1]
+        raw_test_proba = fitted_model.predict_proba(test_inputs)[:, 1]
+        calibrator = fit_isotonic_calibrator(fitted_model, val_inputs, y_val)
+        test_proba = calibrator.predict_proba(test_inputs)[:, 1]
+        save_predictions(model_name, "test_raw", y_test, raw_test_proba)
     elif model_name in {"xgboost", "hist_gradient_boosting"}:
         test_inputs = fitted_model["preprocessor"].transform(x_test)
         if model_name == "xgboost":
@@ -519,6 +539,8 @@ def write_summary(results_df: pd.DataFrame) -> None:
         "selection_metric": "average_precision",
         "secondary_metric": "auroc",
         "calibration_metric": "brier_score",
+        "catboost_test_probability_postprocessing": "isotonic calibration fit on validation split with sklearn.frozen.FrozenEstimator",
+        "catboost_validation_metrics_use_raw_probabilities": True,
     }
     (OUTPUT_DIR / "run_metadata.json").write_text(json.dumps(metadata, indent=2))
 
