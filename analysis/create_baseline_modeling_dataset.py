@@ -10,6 +10,7 @@ DATA_DIR = Path("data")
 OUTPUT_DIR = Path("data/baseline_modeling")
 PASS_FILE = DATA_DIR / "player_appearance_pass.csv"
 PRESSURE_FILE = DATA_DIR / "player_appearance_behaviour_under_pressure.csv"
+RUN_FILE = DATA_DIR / "player_appearance_run.csv"
 SHOT_FILE_CANDIDATES = [
     DATA_DIR / "player_appearance_shot_limited.csv",
     DATA_DIR / "player_appearance_shots_limited.csv",
@@ -31,6 +32,7 @@ DROP_FROM_MODEL = [
     "minute_in",
     "minute_out",
     "subbed",
+
     "cumul_distance",
     "cumul_mean_max_speed",
     "last15_distance",
@@ -39,25 +41,12 @@ DROP_FROM_MODEL = [
     "cumul_peak_speed",
     "last15_hsr",
     "cumul_hsr",
-
-    ### feature Norbert test
-    "last15_shots_top_third",
-    "last_15_shots_under_pressure",
-    "last15_shots_on_target",
-    "last_15_shots_set_play",
-    "last_15_shots_special",
-    "last_15_shots_blocked",
-    # "cumul_received_succ",
-    "last15_middle_sprint_count",
-    
 ]
 
 TARGET_COL = "scored_after"
 
 ROW_FILTERS = [
     ("last15_distance", "<", 1000),
-    ("cumul_distance", "<", 1000),
-    ("last15_mean_max_speed", "<", 10.3),
     ("cumul_mean_max_speed", "<", 10.3),
 ]
 
@@ -83,7 +72,6 @@ ABS_MINUTE_TO_CHECKPOINT = {
     75: "H2_30",
     90: "H2_45",
     105: "ET1_15",
-    120: "ET2_15",
 }
 
 CHECKPOINT_TO_ABS_MINUTE = {v: k for k, v in ABS_MINUTE_TO_CHECKPOINT.items()}
@@ -200,6 +188,7 @@ RUN_CUMUL_COLS = [
     "cumul_unique_run_possessions",
 ]
 CHECKPOINT_ORDER = {checkpoint: idx for idx, checkpoint in enumerate(ABS_MINUTE_TO_CHECKPOINT.values(), start=1)}
+VALID_CHECKPOINT_MINUTES = sorted(ABS_MINUTE_TO_CHECKPOINT.keys())
 
 CSV_NULL_TOKENS = ["NULL", "null", ""]
 
@@ -212,7 +201,7 @@ def parse_args() -> argparse.Namespace:
         "--merge-sources",
         type=str,
         default="passes",
-        help="Comma-separated sources to merge: passes,pressure,none (e.g. passes,pressure).",
+        help="Comma-separated sources to merge: passes,pressure,runs,shots,none (e.g. passes,pressure,runs).",
     )
     parser.add_argument(
         "--feature-window",
@@ -229,7 +218,7 @@ def parse_args() -> argparse.Namespace:
 
 def parse_merge_sources(value: str) -> set[str]:
     tokens = {token.strip().lower() for token in str(value).split(",") if token.strip()}
-    valid = {"passes", "pressure", "shots", "none"}
+    valid = {"passes", "pressure", "shots", "runs", "none"}
     invalid = tokens - valid
     if invalid:
         raise ValueError(f"Unsupported merge source(s): {sorted(invalid)}. Valid: {sorted(valid)}")
@@ -271,6 +260,40 @@ def filter_model_columns_by_window(
             continue
         keep.append(col)
     return keep
+
+
+def get_source_feature_columns(selected_sources: set[str]) -> list[str]:
+    feature_cols: list[str] = []
+    if "passes" in selected_sources:
+        feature_cols.extend(PASS_FEATURE_COLS)
+    if "pressure" in selected_sources:
+        feature_cols.extend(PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS)
+    if "runs" in selected_sources:
+        feature_cols.extend(RUN_COUNT_COLS + RUN_SHARE_COLS + RUN_DISTANCE_COLS + RUN_POSSESSION_COLS)
+    if "shots" in selected_sources:
+        feature_cols.extend(SHOT_COUNT_COLS + SHOT_RATE_COLS)
+    return feature_cols
+
+
+def get_added_extension_features(selected_sources: set[str], window_mode: str) -> list[str]:
+    return filter_model_columns_by_window(
+        columns=get_source_feature_columns(selected_sources),
+        target_col=TARGET_COL,
+        window_mode=window_mode,
+    )
+
+
+def carry_forward_cumulative_features(df: pd.DataFrame, cumulative_cols: list[str]) -> pd.DataFrame:
+    valid_cols = [col for col in cumulative_cols if col in df.columns]
+    if not valid_cols:
+        return df
+
+    out = df.copy()
+    out["_checkpoint_order"] = out["checkpoint"].map(CHECKPOINT_ORDER)
+    out = out.sort_values(["player_appearance_id", "_checkpoint_order"]).copy()
+    out[valid_cols] = out.groupby("player_appearance_id")[valid_cols].ffill()
+    out = out.sort_index().drop(columns=["_checkpoint_order"])
+    return out
 
 
 def split_formation_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -406,24 +429,52 @@ def minute_to_bucket(minute: float) -> int | None:
     minute = float(minute)
     if minute <= 0:
         return None
-    # Event data can include stoppage-time values (>45) within the same period.
-    # We cap them at the 45-minute checkpoint for that period.
     if minute <= 15:
         return 15
     if minute <= 30:
         return 30
-    return 45
+    if minute <= 45:
+        return 45
+    return None
+
+
+def period_minute_to_abs_minute(period: str, minute: float) -> float | None:
+    if pd.isna(minute):
+        return None
+
+    minute = float(minute)
+    if minute <= 0:
+        return None
+
+    period_key = str(period).strip().lower()
+    offsets = {
+        "half_1": 0,
+        "half_2": 45,
+        "extra_time_1": 90,
+        "extra_time_2": 105,
+    }
+    offset = offsets.get(period_key)
+    if offset is None:
+        return None
+    return offset + minute
+
+
+def abs_minute_to_checkpoint(abs_minute: float) -> str | None:
+    if abs_minute is None or pd.isna(abs_minute):
+        return None
+    abs_minute = float(abs_minute)
+    if abs_minute <= 0:
+        return None
+
+    for checkpoint_minute in VALID_CHECKPOINT_MINUTES:
+        if abs_minute <= checkpoint_minute:
+            return ABS_MINUTE_TO_CHECKPOINT[checkpoint_minute]
+    return None
 
 
 def period_minute_to_checkpoint(period: str, minute: float) -> str | None:
-    period_key = str(period).strip().lower()
-    prefix = PERIOD_PREFIX.get(period_key)
-    if prefix is None:
-        return None
-    bucket = minute_to_bucket(minute)
-    if bucket is None:
-        return None
-    return f"{prefix}_{bucket}"
+    abs_minute = period_minute_to_abs_minute(period, minute)
+    return abs_minute_to_checkpoint(abs_minute)
 
 
 def parse_bool(series: pd.Series) -> pd.Series:
@@ -434,14 +485,16 @@ def parse_bool(series: pd.Series) -> pd.Series:
 
 def add_checkpoint_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    out["checkpoint"] = [
-        period_minute_to_checkpoint(period, minute)
+    out["event_abs_minute"] = [
+        period_minute_to_abs_minute(period, minute)
         for period, minute in zip(out["period"], out["minute"])
     ]
-    out["checkpoint_period_order"] = (
-        out["period"].astype("string").str.lower().map(PERIOD_ORDER)
-    )
-    out["checkpoint_bucket"] = out["minute"].apply(minute_to_bucket)
+    out["checkpoint"] = [
+        abs_minute_to_checkpoint(abs_minute)
+        for abs_minute in out["event_abs_minute"]
+    ]
+    out["checkpoint_period_order"] = out["checkpoint"].map(CHECKPOINT_ORDER)
+    out["checkpoint_bucket"] = out["checkpoint"].map(CHECKPOINT_TO_ABS_MINUTE)
     out = out[out["checkpoint"].notna()].copy()
     return out
 
@@ -643,7 +696,7 @@ def build_shot_features() -> pd.DataFrame:
 
 
 def build_run_features() -> pd.DataFrame:
-    runs = pd.read_csv(RUN_FILE)
+    runs = read_csv_with_nulls(RUN_FILE)
     runs = runs[runs["stage"].isin(["top", "middle", "bottom"])].copy()
     runs = runs[runs["run_type"].isin(["sprint", "hsr"])].copy()
     runs = add_checkpoint_columns(runs)
@@ -991,13 +1044,15 @@ def build_feature_spine_from_selected_sources(selected_sources: set[str]) -> pd.
         feature_frames.append(build_received_pass_features())
     if "pressure" in selected_sources:
         feature_frames.append(build_pressure_features())
+    if "runs" in selected_sources:
+        feature_frames.append(build_run_features())
     if "shots" in selected_sources:
         feature_frames.append(build_shot_features())
 
     if not feature_frames:
         raise ValueError(
             "No feature datasets selected. Use --merge-sources with one or more of: "
-            "passes, pressure, shots."
+            "passes, pressure, runs, shots."
         )
 
     spine = feature_frames[0].copy()
@@ -1031,9 +1086,11 @@ def main() -> None:
         parse_dates=["date"],
         na_values=CSV_NULL_TOKENS,
     )
+    base["_checkpoint_order"] = base["checkpoint"].map(CHECKPOINT_ORDER)
     base = base.sort_values(
-        ["date", "fixture_id", "player_appearance_id", "checkpoint"]
+        ["date", "fixture_id", "player_appearance_id", "_checkpoint_order"]
     ).reset_index(drop=True)
+    base = base.drop(columns=["_checkpoint_order"])
     base = split_formation_columns(base)
     base["cumul_in_game_time"] = (
         base["checkpoint"].map(CHECKPOINT_TO_ABS_MINUTE) - base["minute_in"]
@@ -1042,6 +1099,10 @@ def main() -> None:
     if "passes" in selected_sources:
         received_pass_features = build_received_pass_features()
         base = base.merge(received_pass_features, on=["player_appearance_id", "checkpoint"], how="left")
+        base = carry_forward_cumulative_features(
+            base,
+            [col for col in received_pass_features.columns if is_cumul_feature(col)],
+        )
         for col in PASS_FEATURE_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0).astype(int)
@@ -1049,6 +1110,10 @@ def main() -> None:
     if "pressure" in selected_sources:
         pressure_features = build_pressure_features()
         base = base.merge(pressure_features, on=["player_appearance_id", "checkpoint"], how="left")
+        base = carry_forward_cumulative_features(
+            base,
+            [col for col in pressure_features.columns if is_cumul_feature(col)],
+        )
         for col in PRESSURE_COUNT_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0).astype(int)
@@ -1059,7 +1124,10 @@ def main() -> None:
     if "runs" in selected_sources:
         run_features = build_run_features()
         base = base.merge(run_features, on=["player_appearance_id", "checkpoint"], how="left")
-        base = carry_forward_cumulative_features(base, RUN_CUMUL_COLS)
+        base = carry_forward_cumulative_features(
+            base,
+            [col for col in run_features.columns if is_cumul_feature(col)],
+        )
         for col in RUN_COUNT_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0).astype(int)
@@ -1076,6 +1144,10 @@ def main() -> None:
     if "shots" in selected_sources:
         shot_features = build_shot_features()
         base = base.merge(shot_features, on=["player_appearance_id", "checkpoint"], how="left")
+        base = carry_forward_cumulative_features(
+            base,
+            [col for col in shot_features.columns if is_cumul_feature(col)],
+        )
         for col in SHOT_COUNT_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0).astype(int)
@@ -1147,7 +1219,7 @@ def main() -> None:
 
 ## Added baseline extension features
 
-{chr(10).join([f"- `{c}`" for c in (PASS_FEATURE_COLS if "passes" in selected_sources else []) + (PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS if "pressure" in selected_sources else []) + ((RUN_COUNT_COLS + RUN_SHARE_COLS + RUN_DISTANCE_COLS + RUN_POSSESSION_COLS) if "runs" in selected_sources else []) + (SHOT_COUNT_COLS + SHOT_RATE_COLS if "shots" in selected_sources else [])]) if selected_sources else "- none"}
+{chr(10).join([f"- `{c}`" for c in get_added_extension_features(selected_sources, window_mode)]) if selected_sources else "- none"}
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)
@@ -1157,6 +1229,8 @@ def main() -> None:
         print("- player_appearance_pass.csv")
     if "pressure" in selected_sources:
         print("- player_appearance_behaviour_under_pressure.csv")
+    if "runs" in selected_sources:
+        print("- player_appearance_run.csv")
     if "shots" in selected_sources:
         print(f"- {resolve_shot_file().name}")
     print(f"- feature-window: {window_mode}")
@@ -1166,26 +1240,8 @@ def main() -> None:
     print(split_summary.to_string(index=False))
     print()
     print("## Added baseline extension features")
-    if "passes" in selected_sources:
-        print("- last_15_received_succ")
-        print("- last_15_received_unsucc")
-        print("- cumul_received_succ")
-        print("- cumul_received_unsucc")
-    if "pressure" in selected_sources:
-        for col in PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS:
-            print(f"- {col}")
-    if "runs" in selected_sources:
-        for col in RUN_COUNT_COLS:
-            print(f"- {col}")
-        for col in RUN_SHARE_COLS:
-            print(f"- {col}")
-        for col in RUN_DISTANCE_COLS:
-            print(f"- {col}")
-        for col in RUN_POSSESSION_COLS:
-            print(f"- {col}")
-    if "shots" in selected_sources:
-        for col in SHOT_COUNT_COLS + SHOT_RATE_COLS:
-            print(f"- {col}")
+    for col in get_added_extension_features(selected_sources, window_mode):
+        print(f"- {col}")
 
 
 if __name__ == "__main__":
