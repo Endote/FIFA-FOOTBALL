@@ -284,12 +284,12 @@ def fit_xgboost(
     model = xgboost.XGBClassifier(
         n_estimators=2000,
         max_depth=2,
-        learning_rate=0.02,
+        learning_rate=0.002,
         subsample=0.75,
         colsample_bytree=0.80,
         min_child_weight=8,
         reg_lambda=10.0,
-        reg_alpha=0.5,
+        reg_alpha=0.8,
         gamma=0.1,
         max_delta_step=1,
         objective="binary:logistic",
@@ -405,7 +405,7 @@ def fit_hist_gradient_boosting(
         max_depth=4,
         max_iter=300,
         min_samples_leaf=20,
-        l2_regularization=1.0,
+        l2_regularization=5.0,
         random_state=RANDOM_STATE,
     )
     model.fit(x_train_transformed, y_train, sample_weight=balanced_sample_weight(y_train))
@@ -427,13 +427,14 @@ def fit_catboost(
         loss_function="Logloss",
         eval_metric="PRAUC",
         iterations=2000,
-        learning_rate=0.03,
-        depth=3,
-        l2_leaf_reg=10,
+        learning_rate=0.0033,
+        depth=2,
+        l2_leaf_reg=350,
         random_strength=1.0,
         early_stopping_rounds=150,
         random_seed=42,
-        verbose=100
+        verbose=100,
+        # min_data_in_leaf=20,
     )
     model.fit(train_frame, y_train, cat_features=categorical_cols)
     val_proba = model.predict_proba(val_frame)[:, 1]
