@@ -8,6 +8,7 @@ import pandas as pd
 DATA_DIR = Path("data")
 OUTPUT_DIR = Path("data/baseline_modeling")
 PASS_FILE = DATA_DIR / "player_appearance_pass.csv"
+PRESSURE_FILE = DATA_DIR / "player_appearance_behaviour_under_pressure.csv"
 
 TRAIN_SHARE_TARGET = 0.60
 VAL_SHARE_TARGET = 0.20
@@ -21,7 +22,7 @@ DROP_FROM_MODEL = [
     "jersey_number",
     "checkpoint_period",
     "checkpoint_min",
-    "checkpoint",
+    # "checkpoint",
     "fixture_order",
     "minute_in",
     "minute_out",
@@ -31,8 +32,6 @@ TARGET_COL = "scored_after"
 
 ROW_FILTERS = [
     ("last15_distance", "<", 1000),
-    ("cumul_distance", "<", 1000),
-    ("last15_mean_max_speed", "<", 10.3),
     ("cumul_mean_max_speed", "<", 10.3),
 ]
 
@@ -121,6 +120,21 @@ def summarize_split(df: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def build_feature_manifest(dataset: pd.DataFrame) -> pd.DataFrame:
+    roles: list[dict[str, str]] = []
+    for col in dataset.columns:
+        if col == TARGET_COL:
+            role = "target"
+        elif col == "split":
+            role = "split_metadata"
+        elif col in DROP_FROM_MODEL:
+            role = "dropped_from_model"
+        else:
+            role = "predictor"
+        roles.append({"column": col, "role": role})
+    return pd.DataFrame(roles)
+
+
 def apply_row_filters(base: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     mask = pd.Series(True, index=base.index)
     for col, op, threshold in ROW_FILTERS:
@@ -166,24 +180,46 @@ def parse_bool(series: pd.Series) -> pd.Series:
 
 
 def build_received_pass_features() -> pd.DataFrame:
-    passes = pd.read_csv(PASS_FILE)
-    passes = passes[passes["stage"].isin(["top", "middle"])].copy()
-    passes = passes[passes["addressee_player_appearance_id"].notna()].copy()
-    passes["addressee_player_appearance_id"] = passes["addressee_player_appearance_id"].astype(int)
-    passes["checkpoint"] = [
-        period_minute_to_checkpoint(period, minute)
-        for period, minute in zip(passes["period"], passes["minute"])
-    ]
-    passes["checkpoint_period_order"] = (
-        passes["period"].astype("string").str.lower().map(PERIOD_ORDER)
+    return build_received_event_features(PASS_FILE, pressure_suffix=False)
+
+
+def build_received_pressure_features() -> pd.DataFrame:
+    return build_received_event_features(PRESSURE_FILE, pressure_suffix=True)
+
+
+def build_received_event_features(source_file: Path, pressure_suffix: bool) -> pd.DataFrame:
+    checkpoint_grid = pd.DataFrame(
+        {
+            "checkpoint": ["H1_15", "H1_30", "H1_45", "H2_15", "H2_30", "H2_45", "ET1_15"],
+            "checkpoint_period_order": [1, 1, 1, 2, 2, 2, 3],
+            "checkpoint_bucket": [15, 30, 45, 15, 30, 45, 15],
+        }
     )
-    passes["checkpoint_bucket"] = passes["minute"].apply(minute_to_bucket)
-    passes = passes[passes["checkpoint"].notna()].copy()
-    passes["received_succ"] = parse_bool(passes["accurate"]).astype(int)
-    passes["received_unsucc"] = 1 - passes["received_succ"]
+
+    events = pd.read_csv(source_file)
+    events = events[events["stage"].isin(["top", "middle"])].copy()
+    events = events[events["addressee_player_appearance_id"].notna()].copy()
+    events["addressee_player_appearance_id"] = events["addressee_player_appearance_id"].astype(int)
+    events["checkpoint"] = [
+        period_minute_to_checkpoint(period, minute)
+        for period, minute in zip(events["period"], events["minute"])
+    ]
+    events["checkpoint_period_order"] = (
+        events["period"].astype("string").str.lower().map(PERIOD_ORDER)
+    )
+    events["checkpoint_bucket"] = events["minute"].apply(minute_to_bucket)
+    events = events[events["checkpoint"].notna()].copy()
+    events["received_succ"] = parse_bool(events["accurate"]).astype(int)
+    events["received_unsucc"] = 1 - events["received_succ"]
+
+    suffix = "_pressure" if pressure_suffix else ""
+    last15_succ_col = f"last_15_received_succ{suffix}"
+    last15_unsucc_col = f"last_15_received_unsucc{suffix}"
+    cumul_succ_col = f"cumul_received_succ{suffix}"
+    cumul_unsucc_col = f"cumul_received_unsucc{suffix}"
 
     last15 = (
-        passes.groupby(
+        events.groupby(
             [
                 "addressee_player_appearance_id",
                 "checkpoint",
@@ -193,22 +229,35 @@ def build_received_pass_features() -> pd.DataFrame:
             as_index=False,
         )
         .agg(
-            last_15_received_succ=("received_succ", "sum"),
-            last_15_received_unsucc=("received_unsucc", "sum"),
+            **{
+                last15_succ_col: ("received_succ", "sum"),
+                last15_unsucc_col: ("received_unsucc", "sum"),
+            }
         )
         .rename(columns={"addressee_player_appearance_id": "player_appearance_id"})
     )
 
-    last15 = last15.sort_values(
+    receivers = pd.DataFrame({"player_appearance_id": last15["player_appearance_id"].unique()})
+    full_grid = receivers.merge(checkpoint_grid, how="cross")
+    full_grid = full_grid.merge(
+        last15,
+        on=["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+        how="left",
+    )
+    full_grid[[last15_succ_col, last15_unsucc_col]] = full_grid[
+        [last15_succ_col, last15_unsucc_col]
+    ].fillna(0).astype(int)
+
+    full_grid = full_grid.sort_values(
         ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket"]
     )
-    last15["cumul_received_succ"] = (
-        last15.groupby("player_appearance_id")["last_15_received_succ"].cumsum()
+    full_grid[cumul_succ_col] = (
+        full_grid.groupby("player_appearance_id")[last15_succ_col].cumsum()
     )
-    last15["cumul_received_unsucc"] = (
-        last15.groupby("player_appearance_id")["last_15_received_unsucc"].cumsum()
+    full_grid[cumul_unsucc_col] = (
+        full_grid.groupby("player_appearance_id")[last15_unsucc_col].cumsum()
     )
-    return last15.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
+    return full_grid.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
 
 
 def main() -> None:
@@ -220,13 +269,19 @@ def main() -> None:
         base["checkpoint"].map(CHECKPOINT_TO_ABS_MINUTE) - base["minute_in"]
     ).clip(lower=0)
     received_pass_features = build_received_pass_features()
+    received_pressure_features = build_received_pressure_features()
     base = base.merge(received_pass_features, on=["player_appearance_id", "checkpoint"], how="left")
+    base = base.merge(received_pressure_features, on=["player_appearance_id", "checkpoint"], how="left")
     base[
         [
             "last_15_received_succ",
             "last_15_received_unsucc",
             "cumul_received_succ",
             "cumul_received_unsucc",
+            "last_15_received_succ_pressure",
+            "last_15_received_unsucc_pressure",
+            "cumul_received_succ_pressure",
+            "cumul_received_unsucc_pressure",
         ]
     ] = base[
         [
@@ -234,6 +289,10 @@ def main() -> None:
             "last_15_received_unsucc",
             "cumul_received_succ",
             "cumul_received_unsucc",
+            "last_15_received_succ_pressure",
+            "last_15_received_unsucc_pressure",
+            "cumul_received_succ_pressure",
+            "cumul_received_unsucc_pressure",
         ]
     ].fillna(0).astype(int)
     filtered_base, removed_rows = apply_row_filters(base)
@@ -250,32 +309,15 @@ def main() -> None:
     model_dataset_export = model_dataset.drop(columns=["split"]).copy()
 
     split_summary = summarize_split(dataset)
+    feature_manifest = build_feature_manifest(dataset)
 
     model_dataset_export.to_csv(OUTPUT_DIR / "baseline_all_model_ready.csv", index=False)
     fixture_split.to_csv(OUTPUT_DIR / "baseline_fixture_split.csv", index=False)
-    split_summary.to_csv(OUTPUT_DIR / "baseline_split_summary.csv", index=False)
-    removed_rows.to_csv(OUTPUT_DIR / "baseline_removed_rows_quality_filters.csv", index=False)
+    feature_manifest.to_csv(OUTPUT_DIR / "baseline_feature_manifest.csv", index=False)
 
     for split_name in ["train", "val", "test"]:
         split_model = model_dataset[model_dataset["split"] == split_name].drop(columns=["split"]).copy()
         split_model.to_csv(OUTPUT_DIR / f"baseline_{split_name}_model_ready.csv", index=False)
-
-    feature_manifest = pd.DataFrame(
-        {
-            "column": dataset.columns,
-            "role": [
-                "target"
-                if col == TARGET_COL
-                else "dropped_from_model"
-                if col in DROP_FROM_MODEL
-                else "split_metadata"
-                if col == "split"
-                else "predictor"
-                for col in dataset.columns
-            ],
-        }
-    )
-    feature_manifest.to_csv(OUTPUT_DIR / "baseline_feature_manifest.csv", index=False)
 
     summary_md = f"""# Baseline Modeling Dataset
 
@@ -283,6 +325,7 @@ def main() -> None:
 
 - Source table: [players_quarters_final.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/players_quarters_final.csv)
 - Extension source: [player_appearance_pass.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/player_appearance_pass.csv)
+- Extension source: [player_appearance_behaviour_under_pressure.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/player_appearance_behaviour_under_pressure.csv)
 - Output directory: [baseline_modeling](/Users/norbert.jaworski/Documents/small/WEC2026/data/baseline_modeling)
 
 ## Requested 60 / 20 / 20 split
@@ -298,6 +341,10 @@ def main() -> None:
 - `last_15_received_unsucc`
 - `cumul_received_succ`
 - `cumul_received_unsucc`
+- `last_15_received_succ_pressure`
+- `last_15_received_unsucc_pressure`
+- `cumul_received_succ_pressure`
+- `cumul_received_unsucc_pressure`
 - `cumul_in_game_time`
 """
 
@@ -305,6 +352,7 @@ def main() -> None:
     print("## Source")
     print("- players_quarters_final.csv")
     print("- player_appearance_pass.csv")
+    print("- player_appearance_behaviour_under_pressure.csv")
     print(f"- output: {OUTPUT_DIR}")
     print()
     print("## Requested 60 / 20 / 20 split")
@@ -315,7 +363,15 @@ def main() -> None:
     print("- last_15_received_unsucc")
     print("- cumul_received_succ")
     print("- cumul_received_unsucc")
+    print("- last_15_received_succ_pressure")
+    print("- last_15_received_unsucc_pressure")
+    print("- cumul_received_succ_pressure")
+    print("- cumul_received_unsucc_pressure")
     print("- cumul_in_game_time")
+    print()
+    print("## Removed from model-ready files")
+    for col in DROP_FROM_MODEL:
+        print(f"- {col}")
 
 
 if __name__ == "__main__":
