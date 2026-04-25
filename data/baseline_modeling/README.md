@@ -13,9 +13,9 @@
 - The closest deterministic split on this dataset is:
 
 split  rows  fixtures  player_appearances  players  positives  positive_rate  row_share
- test   741         6                 173      111         45       0.060729   0.216161
-train  2043        19                 528      279        123       0.060206   0.595974
-  val   644         6                 166      155         35       0.054348   0.187865
+ test   643         5                 147       95         29       0.045101   0.199938
+train  1917        20                 499      266        109       0.056860   0.596082
+  val   656         6                 162      143         44       0.067073   0.203980
 
 ## Added baseline extension features
 
