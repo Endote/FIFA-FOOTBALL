@@ -14,9 +14,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier
 
 
 DATA_DIR = Path("data/baseline_modeling")
@@ -176,6 +179,19 @@ def build_one_hot_preprocessor(numeric_cols: list[str], categorical_cols: list[s
     )
 
 
+def build_scaled_one_hot_preprocessor(numeric_cols: list[str], categorical_cols: list[str]) -> ColumnTransformer:
+    return ColumnTransformer(
+        transformers=[
+            ("numeric", StandardScaler(), numeric_cols),
+            (
+                "categorical",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                categorical_cols,
+            ),
+        ],
+    )
+
+
 def impute_splits(
     x_train: pd.DataFrame,
     x_val: pd.DataFrame,
@@ -216,6 +232,11 @@ def positive_class_weight(y: pd.Series) -> float:
     if positives == 0:
         raise ValueError("Training split has no positive examples.")
     return negatives / positives
+
+
+def balanced_sample_weight(y: pd.Series) -> np.ndarray:
+    pos_weight = positive_class_weight(y)
+    return np.where(y.to_numpy() == 1, pos_weight, 1.0)
 
 
 def compute_metrics(y_true: pd.Series, y_proba: np.ndarray) -> tuple[float, float, float]:
@@ -331,6 +352,81 @@ def fit_tabpfn(
     raise RuntimeError("TabPFN failed without a captured exception.")
 
 
+def fit_logistic_regression(
+    x_train: pd.DataFrame,
+    y_train: pd.Series,
+    x_val: pd.DataFrame,
+    numeric_cols: list[str],
+    categorical_cols: list[str],
+):
+    pipeline = Pipeline(
+        steps=[
+            ("preprocess", build_scaled_one_hot_preprocessor(numeric_cols, categorical_cols)),
+            (
+                "model",
+                LogisticRegression(
+                    class_weight="balanced",
+                    max_iter=5000,
+                    solver="lbfgs",
+                    random_state=RANDOM_STATE,
+                ),
+            ),
+        ]
+    )
+    pipeline.fit(x_train, y_train)
+    val_proba = pipeline.predict_proba(x_val)[:, 1]
+    return pipeline, val_proba
+
+
+def fit_decision_tree(
+    x_train: pd.DataFrame,
+    y_train: pd.Series,
+    x_val: pd.DataFrame,
+    numeric_cols: list[str],
+    categorical_cols: list[str],
+):
+    pipeline = Pipeline(
+        steps=[
+            ("preprocess", build_one_hot_preprocessor(numeric_cols, categorical_cols)),
+            (
+                "model",
+                DecisionTreeClassifier(
+                    max_depth=4,
+                    min_samples_leaf=20,
+                    class_weight="balanced",
+                    random_state=RANDOM_STATE,
+                ),
+            ),
+        ]
+    )
+    pipeline.fit(x_train, y_train)
+    val_proba = pipeline.predict_proba(x_val)[:, 1]
+    return pipeline, val_proba
+
+
+def fit_hist_gradient_boosting(
+    x_train: pd.DataFrame,
+    y_train: pd.Series,
+    x_val: pd.DataFrame,
+    numeric_cols: list[str],
+    categorical_cols: list[str],
+):
+    preprocessor = build_one_hot_preprocessor(numeric_cols, categorical_cols)
+    x_train_transformed = preprocessor.fit_transform(x_train)
+    x_val_transformed = preprocessor.transform(x_val)
+    model = HistGradientBoostingClassifier(
+        learning_rate=0.05,
+        max_depth=4,
+        max_iter=300,
+        min_samples_leaf=20,
+        l2_regularization=1.0,
+        random_state=RANDOM_STATE,
+    )
+    model.fit(x_train_transformed, y_train, sample_weight=balanced_sample_weight(y_train))
+    val_proba = model.predict_proba(x_val_transformed)[:, 1]
+    return {"preprocessor": preprocessor, "model": model}, val_proba
+
+
 def fit_catboost(
     x_train: pd.DataFrame,
     y_train: pd.Series,
@@ -373,11 +469,14 @@ def evaluate_model(
     if model_name == "catboost":
         test_inputs = to_catboost_frame(x_test, categorical_cols)
         test_proba = fitted_model.predict_proba(test_inputs)[:, 1]
-    elif model_name == "xgboost":
+    elif model_name in {"xgboost", "hist_gradient_boosting"}:
         test_inputs = fitted_model["preprocessor"].transform(x_test)
-        test_proba = np.asarray(
-            fitted_model["model"].get_booster().inplace_predict(test_inputs, predict_type="value")
-        )
+        if model_name == "xgboost":
+            test_proba = np.asarray(
+                fitted_model["model"].get_booster().inplace_predict(test_inputs, predict_type="value")
+            )
+        else:
+            test_proba = fitted_model["model"].predict_proba(test_inputs)[:, 1]
     elif model_name == "tabpfn":
         test_proba = batched_predict_proba(fitted_model, x_test, batch_size=64)
     else:
@@ -451,6 +550,9 @@ def get_trainers(
     accelerator: dict[str, Any],
 ) -> dict[str, Any]:
     return {
+        "logistic_regression": lambda: fit_logistic_regression(x_train, y_train, x_val, numeric_cols, categorical_cols),
+        "decision_tree": lambda: fit_decision_tree(x_train, y_train, x_val, numeric_cols, categorical_cols),
+        "hist_gradient_boosting": lambda: fit_hist_gradient_boosting(x_train, y_train, x_val, numeric_cols, categorical_cols),
         "tabpfn": lambda: fit_tabpfn(x_train, y_train, x_val, numeric_cols, categorical_cols, accelerator),
         "xgboost": lambda: fit_xgboost(x_train, y_train, x_val, numeric_cols, categorical_cols, accelerator),
         "catboost": lambda: fit_catboost(x_train, y_train, x_val, categorical_cols, accelerator),
@@ -580,7 +682,16 @@ def main(single_model: str | None = None) -> None:
         )
         return
 
-    results, failures = run_models_in_subprocesses(["tabpfn", "xgboost", "catboost"])
+    results, failures = run_models_in_subprocesses(
+        [
+            "logistic_regression",
+            "decision_tree",
+            "hist_gradient_boosting",
+            "tabpfn",
+            "xgboost",
+            "catboost",
+        ]
+    )
 
     if not results:
         write_failures(failures)
@@ -613,6 +724,17 @@ def main(single_model: str | None = None) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--single-model", choices=["xgboost", "catboost"], default=None)
+    parser.add_argument(
+        "--single-model",
+        choices=[
+            "logistic_regression",
+            "decision_tree",
+            "hist_gradient_boosting",
+            # "tabpfn",
+            "xgboost",
+            "catboost",
+        ],
+        default=None,
+    )
     args = parser.parse_args()
     main(single_model=args.single_model)

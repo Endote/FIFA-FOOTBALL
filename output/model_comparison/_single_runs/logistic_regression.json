@@ -1,0 +1,20 @@
+{
+  "status": "ok",
+  "result": {
+    "model_name": "logistic_regression",
+    "val_average_precision": 0.09321277494470062,
+    "val_auroc": 0.5785969349799136,
+    "val_brier_score": 0.24930913576517438,
+    "test_average_precision": 0.142601132087595,
+    "test_auroc": 0.6165220369947477,
+    "test_brier_score": 0.2454257626558204
+  },
+  "accelerator": {
+    "preferred": "mlx",
+    "tabpfn_device": "mps",
+    "xgboost_device": "cpu",
+    "xgboost_tree_method": "hist",
+    "catboost_task_type": "CPU",
+    "catboost_devices": null
+  }
+}

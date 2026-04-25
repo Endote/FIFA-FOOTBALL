@@ -1,0 +1,20 @@
+{
+  "status": "ok",
+  "result": {
+    "model_name": "decision_tree",
+    "val_average_precision": 0.13060036850212417,
+    "val_auroc": 0.7004166046719238,
+    "val_brier_score": 0.24697040098195736,
+    "test_average_precision": 0.09280606387976874,
+    "test_auroc": 0.7215117606759534,
+    "test_brier_score": 0.2343171561519374
+  },
+  "accelerator": {
+    "preferred": "mlx",
+    "tabpfn_device": "mps",
+    "xgboost_device": "cpu",
+    "xgboost_tree_method": "hist",
+    "catboost_task_type": "CPU",
+    "catboost_devices": null
+  }
+}

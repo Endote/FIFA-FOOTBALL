@@ -22,6 +22,8 @@ DROP_FROM_MODEL = [
     "checkpoint_period",
     "checkpoint_min",
     "fixture_order",
+    "minute_in",
+    "minute_out",
 ]
 
 TARGET_COL = "scored_after"
@@ -49,6 +51,8 @@ ABS_MINUTE_TO_CHECKPOINT = {
     90: "H2_45",
     105: "ET1_15",
 }
+
+CHECKPOINT_TO_ABS_MINUTE = {v: k for k, v in ABS_MINUTE_TO_CHECKPOINT.items()}
 
 
 def build_fixture_split(base: pd.DataFrame) -> pd.DataFrame:
@@ -138,7 +142,7 @@ def build_received_pass_features() -> pd.DataFrame:
     passes["received_succ"] = passes["accurate"].astype(int)
     passes["received_unsucc"] = (~passes["accurate"]).astype(int)
 
-    return (
+    last15 = (
         passes.groupby(["addressee_player_appearance_id", "checkpoint"], as_index=False)
         .agg(
             last_15_received_succ=("received_succ", "sum"),
@@ -147,16 +151,42 @@ def build_received_pass_features() -> pd.DataFrame:
         .rename(columns={"addressee_player_appearance_id": "player_appearance_id"})
     )
 
+    checkpoint_order = {"H1_15": 1, "H1_30": 2, "H1_45": 3, "H2_15": 4, "H2_30": 5, "H2_45": 6, "ET1_15": 7}
+    last15["checkpoint_order"] = last15["checkpoint"].map(checkpoint_order)
+    last15 = last15.sort_values(["player_appearance_id", "checkpoint_order"])
+    last15["cumul_received_succ"] = (
+        last15.groupby("player_appearance_id")["last_15_received_succ"].cumsum()
+    )
+    last15["cumul_received_unsucc"] = (
+        last15.groupby("player_appearance_id")["last_15_received_unsucc"].cumsum()
+    )
+    return last15.drop(columns=["checkpoint_order"])
+
 
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
     base = base.sort_values(["date", "fixture_id", "player_appearance_id", "checkpoint"]).reset_index(drop=True)
+    base["cumul_in_game_time"] = (
+        base["checkpoint"].map(CHECKPOINT_TO_ABS_MINUTE) - base["minute_in"]
+    ).clip(lower=0)
     received_pass_features = build_received_pass_features()
     base = base.merge(received_pass_features, on=["player_appearance_id", "checkpoint"], how="left")
-    base[["last_15_received_succ", "last_15_received_unsucc"]] = base[
-        ["last_15_received_succ", "last_15_received_unsucc"]
+    base[
+        [
+            "last_15_received_succ",
+            "last_15_received_unsucc",
+            "cumul_received_succ",
+            "cumul_received_unsucc",
+        ]
+    ] = base[
+        [
+            "last_15_received_succ",
+            "last_15_received_unsucc",
+            "cumul_received_succ",
+            "cumul_received_unsucc",
+        ]
     ].fillna(0).astype(int)
     filtered_base, removed_rows = apply_row_filters(base)
 
@@ -169,19 +199,17 @@ def main() -> None:
 
     model_columns = [col for col in dataset.columns if col not in DROP_FROM_MODEL]
     model_dataset = dataset[model_columns].copy()
+    model_dataset_export = model_dataset.drop(columns=["split"]).copy()
 
     split_summary = summarize_split(dataset)
 
-    dataset.to_csv(OUTPUT_DIR / "baseline_all_with_splits.csv", index=False)
-    model_dataset.to_csv(OUTPUT_DIR / "baseline_all_model_ready.csv", index=False)
+    model_dataset_export.to_csv(OUTPUT_DIR / "baseline_all_model_ready.csv", index=False)
     fixture_split.to_csv(OUTPUT_DIR / "baseline_fixture_split.csv", index=False)
     split_summary.to_csv(OUTPUT_DIR / "baseline_split_summary.csv", index=False)
     removed_rows.to_csv(OUTPUT_DIR / "baseline_removed_rows_quality_filters.csv", index=False)
 
     for split_name in ["train", "val", "test"]:
-        split_full = dataset[dataset["split"] == split_name].copy()
-        split_model = model_dataset[model_dataset["split"] == split_name].copy()
-        split_full.to_csv(OUTPUT_DIR / f"baseline_{split_name}_full.csv", index=False)
+        split_model = model_dataset[model_dataset["split"] == split_name].drop(columns=["split"]).copy()
         split_model.to_csv(OUTPUT_DIR / f"baseline_{split_name}_model_ready.csv", index=False)
 
     feature_manifest = pd.DataFrame(
@@ -206,24 +234,8 @@ def main() -> None:
 ## Source
 
 - Source table: [players_quarters_final.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/players_quarters_final.csv)
+- Extension source: [player_appearance_pass.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/player_appearance_pass.csv)
 - Output directory: [baseline_modeling](/Users/norbert.jaworski/Documents/small/WEC2026/data/baseline_modeling)
-
-## Row quality filters applied before splitting
-
-- `last15_distance < 1000`
-- `cumul_distance < 1000`
-- `last15_mean_max_speed < 10.3`
-- `cumul_mean_max_speed < 10.3`
-- Removed rows: {len(removed_rows)}
-- Removed player appearances: {removed_rows['player_appearance_id'].nunique()}
-
-## Split design
-
-- Splits are chronological and fixture-grouped.
-- Primary sort order: `date`
-- Tie-break inside the same date: `fixture_id`
-- This keeps complete fixtures inside one split and prevents future-match leakage.
-- Because the source data does not include kickoff timestamps, `fixture_id` is used only as a deterministic within-date ordering rule.
 
 ## Requested 60 / 20 / 20 split
 
@@ -232,26 +244,30 @@ def main() -> None:
 
 {split_summary.to_string(index=False)}
 
-## What is removed from the model-ready files
-
-- `player_appearance_id`
-- `player_id`
-- `fixture_id`
-- `date`
-- `jersey_number`
-- `checkpoint_period`
-- `checkpoint_min`
-- `fixture_order`
-
 ## Added baseline extension features
 
 - `last_15_received_succ`
 - `last_15_received_unsucc`
-
+- `cumul_received_succ`
+- `cumul_received_unsucc`
+- `cumul_in_game_time`
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)
-    print(summary_md)
+    print("## Source")
+    print("- players_quarters_final.csv")
+    print("- player_appearance_pass.csv")
+    print(f"- output: {OUTPUT_DIR}")
+    print()
+    print("## Requested 60 / 20 / 20 split")
+    print(split_summary.to_string(index=False))
+    print()
+    print("## Added baseline extension features")
+    print("- last_15_received_succ")
+    print("- last_15_received_unsucc")
+    print("- cumul_received_succ")
+    print("- cumul_received_unsucc")
+    print("- cumul_in_game_time")
 
 
 if __name__ == "__main__":

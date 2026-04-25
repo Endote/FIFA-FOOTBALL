@@ -1,0 +1,20 @@
+{
+  "status": "ok",
+  "result": {
+    "model_name": "hist_gradient_boosting",
+    "val_average_precision": 0.10076462801509675,
+    "val_auroc": 0.6355453057580718,
+    "val_brier_score": 0.11332478216082717,
+    "test_average_precision": 0.13478410004570124,
+    "test_auroc": 0.6245718200502398,
+    "test_brier_score": 0.11071358548848113
+  },
+  "accelerator": {
+    "preferred": "mlx",
+    "tabpfn_device": "mps",
+    "xgboost_device": "cpu",
+    "xgboost_tree_method": "hist",
+    "catboost_task_type": "CPU",
+    "catboost_devices": null
+  }
+}

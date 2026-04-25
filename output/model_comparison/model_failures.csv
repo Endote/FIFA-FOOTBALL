@@ -1,3 +1,4 @@
 model_name,error
-tabpfn,"usage: model_comparison.py [-h] [--single-model {xgboost,catboost}]
-model_comparison.py: error: argument --single-model: invalid choice: 'tabpfn' (choose from 'xgboost', 'catboost')"
+tabpfn,"usage: model_comparison.py [-h]
+                           [--single-model {logistic_regression,decision_tree,hist_gradient_boosting,xgboost,catboost}]
+model_comparison.py: error: argument --single-model: invalid choice: 'tabpfn' (choose from 'logistic_regression', 'decision_tree', 'hist_gradient_boosting', 'xgboost', 'catboost')"

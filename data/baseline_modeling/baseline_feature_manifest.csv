@@ -9,8 +9,8 @@ checkpoint_min,dropped_from_model
 position,predictor
 is_home,predictor
 formation,predictor
-minute_in,predictor
-minute_out,predictor
+minute_in,dropped_from_model
+minute_out,dropped_from_model
 subbed,predictor
 jersey_number,dropped_from_model
 last15_sprints,predictor
@@ -32,7 +32,10 @@ cumul_shots_on_target,predictor
 cumul_shots_under_press,predictor
 cumul_shots_top_third,predictor
 scored_after,target
+cumul_in_game_time,predictor
 last_15_received_succ,predictor
 last_15_received_unsucc,predictor
+cumul_received_succ,predictor
+cumul_received_unsucc,predictor
 split,split_metadata
 fixture_order,dropped_from_model
