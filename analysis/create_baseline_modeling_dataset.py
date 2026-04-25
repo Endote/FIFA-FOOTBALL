@@ -26,15 +26,16 @@ DROP_FROM_MODEL = [
     "fixture_order",
     "minute_in",
     "minute_out",
-    "cumul_distance",
-    "cumul_mean_max_speed",
-    "last15_distance",
-    "last15_mean_max_speed",
-    "last15_peak_speed",
-    "cumul_peak_speed",
-    "last15_hsr",
-    "cumul_hsr",
     "subbed",
+    # "cumul_distance",
+    # "cumul_mean_max_speed",
+    # "last15_distance",
+    # "last15_mean_max_speed",
+    # "last15_peak_speed",
+    # "cumul_peak_speed",
+    # "last15_hsr",
+    # "cumul_hsr",
+    # "subbed",
 ]
 
 TARGET_COL = "scored_after"
@@ -113,6 +114,16 @@ def parse_args() -> argparse.Namespace:
         default="passes",
         help="Comma-separated sources to merge: passes,pressure,none (e.g. passes,pressure).",
     )
+    parser.add_argument(
+        "--feature-window",
+        type=str,
+        default="all",
+        choices=["all", "cumul", "last15"],
+        help=(
+            "Which time-windowed features to keep in model outputs: "
+            "'all' (default), 'cumul' only, or 'last15' only."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -125,6 +136,41 @@ def parse_merge_sources(value: str) -> set[str]:
     if "none" in tokens:
         return set()
     return tokens
+
+
+def is_last15_feature(col: str) -> bool:
+    return col.startswith("last15_") or col.startswith("last_15_")
+
+
+def is_cumul_feature(col: str) -> bool:
+    return col.startswith("cumul_")
+
+
+def filter_model_columns_by_window(
+    columns: list[str],
+    target_col: str,
+    window_mode: str,
+) -> list[str]:
+    if window_mode == "all":
+        return columns
+
+    keep: list[str] = []
+    for col in columns:
+        if col == target_col:
+            keep.append(col)
+            continue
+        if window_mode == "cumul":
+            if is_last15_feature(col):
+                continue
+            keep.append(col)
+            continue
+        if window_mode == "last15":
+            if is_cumul_feature(col):
+                continue
+            keep.append(col)
+            continue
+        keep.append(col)
+    return keep
 
 
 def build_fixture_split(base: pd.DataFrame) -> pd.DataFrame:
@@ -369,6 +415,7 @@ def build_pressure_features() -> pd.DataFrame:
 def main() -> None:
     args = parse_args()
     selected_sources = parse_merge_sources(args.merge_sources)
+    window_mode = args.feature_window
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
@@ -396,6 +443,11 @@ def main() -> None:
     )
 
     model_columns = [col for col in dataset.columns if col not in DROP_FROM_MODEL]
+    model_columns = filter_model_columns_by_window(
+        columns=model_columns,
+        target_col=TARGET_COL,
+        window_mode=window_mode,
+    )
     model_dataset = dataset[model_columns].copy()
     model_dataset_export = model_dataset.drop(columns=["split"]).copy()
 
@@ -433,6 +485,7 @@ def main() -> None:
 
 - Source table: [players_quarters_final.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/players_quarters_final.csv)
 - Extension source(s): `{",".join(sorted(selected_sources)) if selected_sources else "none"}`
+- Feature-window mode: `{window_mode}`
 - Output directory: [baseline_modeling](/Users/norbert.jaworski/Documents/small/WEC2026/data/baseline_modeling)
 
 ## Requested 60 / 20 / 20 split
@@ -455,6 +508,7 @@ def main() -> None:
         print("- player_appearance_pass.csv")
     if "pressure" in selected_sources:
         print("- player_appearance_behaviour_under_pressure.csv")
+    print(f"- feature-window: {window_mode}")
     print(f"- output: {OUTPUT_DIR}")
     print()
     print("## Requested 60 / 20 / 20 split")

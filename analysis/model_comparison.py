@@ -434,7 +434,8 @@ def fit_catboost(
         early_stopping_rounds=150,
         random_seed=42,
         verbose=100,
-        # min_data_in_leaf=20,
+        cat_features = ["checkpoint", "position", "is_home", "formation"],
+        #min_data_in_leaf=20,
     )
     model.fit(train_frame, y_train, cat_features=categorical_cols)
     val_proba = model.predict_proba(val_frame)[:, 1]
