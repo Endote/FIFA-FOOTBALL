@@ -31,7 +31,6 @@ DROP_FROM_MODEL = [
     "minute_in",
     "minute_out",
     "subbed",
-<<<<<<< HEAD
     "formation"
     #"cumul_distance",
     #"cumul_mean_max_speed",
@@ -42,22 +41,14 @@ DROP_FROM_MODEL = [
     #"last15_hsr",
     #"cumul_hsr",
     #"subbed",
-=======
-    # "cumul_distance",
-    # "cumul_mean_max_speed",
-    # "last15_distance",
-    # "last15_mean_max_speed",
-    # "last15_peak_speed",
-    # "cumul_peak_speed",
-    # "last15_hsr",
-    # "cumul_hsr",    
->>>>>>> 3e94d38813479d480bf5bf30629f768be55575b1
 ]
 
 TARGET_COL = "scored_after"
 
 ROW_FILTERS = [
     ("last15_distance", "<", 1000),
+    ("cumul_distance", "<", 1000),
+    ("last15_mean_max_speed", "<", 10.3),
     ("cumul_mean_max_speed", "<", 10.3),
 ]
 
@@ -205,7 +196,6 @@ def filter_model_columns_by_window(
     return keep
 
 
-<<<<<<< HEAD
 def split_formation_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     if "formation" not in out.columns:
@@ -260,21 +250,6 @@ def split_formation_columns(df: pd.DataFrame) -> pd.DataFrame:
     out["formation_attackers"] = attackers
     out["formation_striker"] = strikers
     return out
-=======
-def get_added_extension_features(selected_sources: set[str], window_mode: str) -> list[str]:
-    extension_cols: list[str] = []
-    if "passes" in selected_sources:
-        extension_cols.extend(PASS_FEATURE_COLS)
-    if "pressure" in selected_sources:
-        extension_cols.extend(PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS)
-
-    extension_cols.append("cumul_in_game_time")
-    return filter_model_columns_by_window(
-        columns=extension_cols,
-        target_col=TARGET_COL,
-        window_mode=window_mode,
-    )
->>>>>>> 3e94d38813479d480bf5bf30629f768be55575b1
 
 
 def build_fixture_split(base: pd.DataFrame) -> pd.DataFrame:
@@ -699,11 +674,6 @@ def main() -> None:
     )
     feature_manifest.to_csv(OUTPUT_DIR / "baseline_feature_manifest.csv", index=False)
 
-    added_extension_features = get_added_extension_features(
-        selected_sources=selected_sources,
-        window_mode=window_mode,
-    )
-
     summary_md = f"""# Baseline Modeling Dataset
 
 ## Source
@@ -722,11 +692,7 @@ def main() -> None:
 
 ## Added baseline extension features
 
-<<<<<<< HEAD
 {chr(10).join([f"- `{c}`" for c in (PASS_FEATURE_COLS if "passes" in selected_sources else []) + (PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS if "pressure" in selected_sources else []) + (SHOT_COUNT_COLS + SHOT_RATE_COLS if "shots" in selected_sources else [])]) if selected_sources else "- none"}
-=======
-{chr(10).join([f"- `{c}`" for c in added_extension_features]) if added_extension_features else "- none"}
->>>>>>> 3e94d38813479d480bf5bf30629f768be55575b1
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)
@@ -745,17 +711,17 @@ def main() -> None:
     print(split_summary.to_string(index=False))
     print()
     print("## Added baseline extension features")
-    if added_extension_features:
-        for col in added_extension_features:
+    if "passes" in selected_sources:
+        print("- last_15_received_succ")
+        print("- last_15_received_unsucc")
+        print("- cumul_received_succ")
+        print("- cumul_received_unsucc")
+    if "pressure" in selected_sources:
+        for col in PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS:
             print(f"- {col}")
-<<<<<<< HEAD
     if "shots" in selected_sources:
         for col in SHOT_COUNT_COLS + SHOT_RATE_COLS:
             print(f"- {col}")
-=======
-    else:
-        print("- none")
->>>>>>> 3e94d38813479d480bf5bf30629f768be55575b1
 
 
 if __name__ == "__main__":
