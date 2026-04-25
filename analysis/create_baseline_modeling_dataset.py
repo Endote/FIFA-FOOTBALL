@@ -10,6 +10,10 @@ DATA_DIR = Path("data")
 OUTPUT_DIR = Path("data/baseline_modeling")
 PASS_FILE = DATA_DIR / "player_appearance_pass.csv"
 PRESSURE_FILE = DATA_DIR / "player_appearance_behaviour_under_pressure.csv"
+SHOT_FILE_CANDIDATES = [
+    DATA_DIR / "player_appearance_shot_limited.csv",
+    DATA_DIR / "player_appearance_shots_limited.csv",
+]
 
 TRAIN_SHARE_TARGET = 0.60
 VAL_SHARE_TARGET = 0.20
@@ -27,15 +31,16 @@ DROP_FROM_MODEL = [
     "minute_in",
     "minute_out",
     "subbed",
-    # "cumul_distance",
-    # "cumul_mean_max_speed",
-    # "last15_distance",
-    # "last15_mean_max_speed",
-    # "last15_peak_speed",
-    # "cumul_peak_speed",
-    # "last15_hsr",
-    # "cumul_hsr",
-    # "subbed",
+    "formation"
+    #"cumul_distance",
+    #"cumul_mean_max_speed",
+    #"last15_distance",
+    #"last15_mean_max_speed",
+    #"last15_peak_speed",
+    #"cumul_peak_speed",
+    #"last15_hsr",
+    #"cumul_hsr",
+    #"subbed",
 ]
 
 TARGET_COL = "scored_after"
@@ -103,6 +108,24 @@ PRESSURE_RATE_COLS = [
     "cumul_pressure_success_rate",
 ]
 
+SHOT_COUNT_COLS = [
+    "last_15_shots_total",
+    "cumul_shots_total",
+    "last_15_shots_special",
+    "cumul_shots_special",
+    "last_15_shots_set_play",
+    "cumul_shots_set_play",
+    "last_15_shots_blocked",
+    "cumul_shots_blocked",
+    "last_15_shots_under_pressure",
+    "cumul_shots_under_pressure",
+]
+
+SHOT_RATE_COLS = [
+    "last_15_shots_under_pressure_rate",
+    "cumul_shots_under_pressure_rate",
+]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -129,7 +152,7 @@ def parse_args() -> argparse.Namespace:
 
 def parse_merge_sources(value: str) -> set[str]:
     tokens = {token.strip().lower() for token in str(value).split(",") if token.strip()}
-    valid = {"passes", "pressure", "none"}
+    valid = {"passes", "pressure", "shots", "none"}
     invalid = tokens - valid
     if invalid:
         raise ValueError(f"Unsupported merge source(s): {sorted(invalid)}. Valid: {sorted(valid)}")
@@ -171,6 +194,62 @@ def filter_model_columns_by_window(
             continue
         keep.append(col)
     return keep
+
+
+def split_formation_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "formation" not in out.columns:
+        return out
+
+    parts = out["formation"].astype("string").str.split("-")
+
+    def to_int(value) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    defenders: list[int] = []
+    midfielders: list[int] = []
+    attackers: list[int] = []
+    strikers: list[int] = []
+
+    for formation_parts in parts:
+        if formation_parts is None or len(formation_parts) == 0:
+            defenders.append(0)
+            midfielders.append(0)
+            attackers.append(0)
+            strikers.append(0)
+            continue
+
+        tokens = [to_int(token) for token in formation_parts]
+
+        # 3-part formation: D-M-A, no dedicated striker
+        # 4-part formation: D-M-A-S
+        if len(tokens) == 3:
+            d, m, a = tokens
+            s = 0
+        elif len(tokens) >= 4:
+            d = tokens[0]
+            m = tokens[1]
+            a = tokens[2]
+            s = tokens[3]
+        else:
+            d = tokens[0]
+            m = tokens[1] if len(tokens) > 1 else 0
+            a = 0
+            s = 0
+
+        defenders.append(d)
+        midfielders.append(m)
+        attackers.append(a)
+        strikers.append(s)
+
+    out["formation_defenders"] = defenders
+    out["formation_midfielders"] = midfielders
+    out["formation_attackers"] = attackers
+    out["formation_striker"] = strikers
+    return out
 
 
 def build_fixture_split(base: pd.DataFrame) -> pd.DataFrame:
@@ -233,6 +312,8 @@ def summarize_split(df: pd.DataFrame) -> pd.DataFrame:
 def apply_row_filters(base: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     mask = pd.Series(True, index=base.index)
     for col, op, threshold in ROW_FILTERS:
+        if col not in base.columns:
+            continue
         if op != "<":
             raise ValueError(f"Unsupported operator: {op}")
         mask &= base[col] < threshold
@@ -286,6 +367,16 @@ def add_checkpoint_columns(df: pd.DataFrame) -> pd.DataFrame:
     out["checkpoint_bucket"] = out["minute"].apply(minute_to_bucket)
     out = out[out["checkpoint"].notna()].copy()
     return out
+
+
+def resolve_shot_file() -> Path:
+    for path in SHOT_FILE_CANDIDATES:
+        if path.exists():
+            return path
+    raise FileNotFoundError(
+        "Could not find shots file. Expected one of: "
+        + ", ".join(str(p) for p in SHOT_FILE_CANDIDATES)
+    )
 
 
 def build_received_pass_features() -> pd.DataFrame:
@@ -412,28 +503,132 @@ def build_pressure_features() -> pd.DataFrame:
     return pressured.merge(applied, on=["player_appearance_id", "checkpoint"], how="outer")
 
 
+def build_shot_features() -> pd.DataFrame:
+    shots_path = resolve_shot_file()
+    shots = pd.read_csv(shots_path)
+
+    # Keep only relevant spatial stages.
+    shots = shots[shots["stage"].isin(["top", "middle"])].copy()
+    # Remove own-goal tagged rows.
+    shots = shots[shots["own_goal_player_appearance_id"].isna()].copy()
+
+    shots = add_checkpoint_columns(shots)
+    shots["under_pressure_bool"] = parse_bool(shots["under_pressure"]).astype(int)
+    shots["is_special_shot"] = (
+        shots["technique"].astype("string").str.strip().str.lower().isin(
+            {"volley", "lob", "overhead_kick", "other"}
+        )
+    ).astype(int)
+    shots["is_set_play"] = (
+        shots["play_pattern"].astype("string").str.strip().str.lower().isin(
+            {"corner_kick", "direct_free_kick", "indirect_free_kick", "penalty", "throw_in"}
+        )
+    ).astype(int)
+    shots["is_blocked"] = shots["block_player_appearance_id"].notna().astype(int)
+
+    grouped = (
+        shots.groupby(
+            ["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+            as_index=False,
+        )
+        .agg(
+            last_15_shots_total=("id", "size"),
+            last_15_shots_special=("is_special_shot", "sum"),
+            last_15_shots_set_play=("is_set_play", "sum"),
+            last_15_shots_blocked=("is_blocked", "sum"),
+            last_15_shots_under_pressure=("under_pressure_bool", "sum"),
+        )
+    )
+
+    grouped = grouped.sort_values(
+        ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket"]
+    )
+    grouped["cumul_shots_total"] = grouped.groupby("player_appearance_id")["last_15_shots_total"].cumsum()
+    grouped["cumul_shots_special"] = grouped.groupby("player_appearance_id")["last_15_shots_special"].cumsum()
+    grouped["cumul_shots_set_play"] = grouped.groupby("player_appearance_id")["last_15_shots_set_play"].cumsum()
+    grouped["cumul_shots_blocked"] = grouped.groupby("player_appearance_id")["last_15_shots_blocked"].cumsum()
+    grouped["cumul_shots_under_pressure"] = grouped.groupby("player_appearance_id")[
+        "last_15_shots_under_pressure"
+    ].cumsum()
+
+    grouped["last_15_shots_under_pressure_rate"] = (
+        grouped["last_15_shots_under_pressure"] / grouped["last_15_shots_total"]
+    ).fillna(0.0)
+    grouped["cumul_shots_under_pressure_rate"] = (
+        grouped["cumul_shots_under_pressure"] / grouped["cumul_shots_total"]
+    ).fillna(0.0)
+
+    return grouped.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
+
+
+def build_feature_spine_from_selected_sources(selected_sources: set[str]) -> pd.DataFrame:
+    feature_frames: list[pd.DataFrame] = []
+    if "passes" in selected_sources:
+        feature_frames.append(build_received_pass_features())
+    if "pressure" in selected_sources:
+        feature_frames.append(build_pressure_features())
+    if "shots" in selected_sources:
+        feature_frames.append(build_shot_features())
+
+    if not feature_frames:
+        raise ValueError(
+            "No feature datasets selected. Use --merge-sources with one or more of: "
+            "passes, pressure, shots."
+        )
+
+    spine = feature_frames[0].copy()
+    for frame in feature_frames[1:]:
+        spine = spine.merge(frame, on=["player_appearance_id", "checkpoint"], how="outer")
+    return spine
+
+
+def build_label_context_table() -> pd.DataFrame:
+    base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
+    label_cols = ["player_appearance_id", "checkpoint", "date", "fixture_id", "player_id", TARGET_COL]
+    labels = base[label_cols].copy()
+    labels = labels.drop_duplicates(subset=["player_appearance_id", "checkpoint"])
+    labels[TARGET_COL] = pd.to_numeric(labels[TARGET_COL], errors="coerce").fillna(0).astype(int)
+    return labels
+
+
 def main() -> None:
     args = parse_args()
     selected_sources = parse_merge_sources(args.merge_sources)
     window_mode = args.feature_window
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
-    base = base.sort_values(["date", "fixture_id", "player_appearance_id", "checkpoint"]).reset_index(drop=True)
-    base["cumul_in_game_time"] = (
-        base["checkpoint"].map(CHECKPOINT_TO_ABS_MINUTE) - base["minute_in"]
-    ).clip(lower=0)
-    if "passes" in selected_sources:
-        received_pass_features = build_received_pass_features()
-        base = base.merge(received_pass_features, on=["player_appearance_id", "checkpoint"], how="left")
-        base[PASS_FEATURE_COLS] = base[PASS_FEATURE_COLS].fillna(0).astype(int)
+    feature_spine = build_feature_spine_from_selected_sources(selected_sources)
+    labels = build_label_context_table()
+    dataset_raw = feature_spine.merge(
+        labels,
+        on=["player_appearance_id", "checkpoint"],
+        how="inner",
+    )
 
+    if "passes" in selected_sources:
+        for col in PASS_FEATURE_COLS:
+            if col in dataset_raw.columns:
+                dataset_raw[col] = dataset_raw[col].fillna(0).astype(int)
     if "pressure" in selected_sources:
-        pressure_features = build_pressure_features()
-        base = base.merge(pressure_features, on=["player_appearance_id", "checkpoint"], how="left")
-        base[PRESSURE_COUNT_COLS] = base[PRESSURE_COUNT_COLS].fillna(0).astype(int)
-        base[PRESSURE_RATE_COLS] = base[PRESSURE_RATE_COLS].fillna(0.0)
-    filtered_base, removed_rows = apply_row_filters(base)
+        for col in PRESSURE_COUNT_COLS:
+            if col in dataset_raw.columns:
+                dataset_raw[col] = dataset_raw[col].fillna(0).astype(int)
+        for col in PRESSURE_RATE_COLS:
+            if col in dataset_raw.columns:
+                dataset_raw[col] = dataset_raw[col].fillna(0.0)
+    if "shots" in selected_sources:
+        for col in SHOT_COUNT_COLS:
+            if col in dataset_raw.columns:
+                dataset_raw[col] = dataset_raw[col].fillna(0).astype(int)
+        for col in SHOT_RATE_COLS:
+            if col in dataset_raw.columns:
+                dataset_raw[col] = dataset_raw[col].fillna(0.0)
+
+    dataset_raw = dataset_raw.sort_values(
+        ["date", "fixture_id", "player_appearance_id", "checkpoint"]
+    ).reset_index(drop=True)
+
+    filtered_base, removed_rows = apply_row_filters(dataset_raw)
 
     fixture_split = build_fixture_split(filtered_base)
     dataset = filtered_base.merge(
@@ -497,8 +692,7 @@ def main() -> None:
 
 ## Added baseline extension features
 
-{chr(10).join([f"- `{c}`" for c in (PASS_FEATURE_COLS if "passes" in selected_sources else []) + (PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS if "pressure" in selected_sources else [])]) if selected_sources else "- none"}
-- `cumul_in_game_time`
+{chr(10).join([f"- `{c}`" for c in (PASS_FEATURE_COLS if "passes" in selected_sources else []) + (PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS if "pressure" in selected_sources else []) + (SHOT_COUNT_COLS + SHOT_RATE_COLS if "shots" in selected_sources else [])]) if selected_sources else "- none"}
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)
@@ -508,6 +702,8 @@ def main() -> None:
         print("- player_appearance_pass.csv")
     if "pressure" in selected_sources:
         print("- player_appearance_behaviour_under_pressure.csv")
+    if "shots" in selected_sources:
+        print(f"- {resolve_shot_file().name}")
     print(f"- feature-window: {window_mode}")
     print(f"- output: {OUTPUT_DIR}")
     print()
@@ -523,7 +719,9 @@ def main() -> None:
     if "pressure" in selected_sources:
         for col in PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS:
             print(f"- {col}")
-    print("- cumul_in_game_time")
+    if "shots" in selected_sources:
+        for col in SHOT_COUNT_COLS + SHOT_RATE_COLS:
+            print(f"- {col}")
 
 
 if __name__ == "__main__":
