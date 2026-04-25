@@ -21,6 +21,7 @@ DROP_FROM_MODEL = [
     "jersey_number",
     "checkpoint_period",
     "checkpoint_min",
+    "checkpoint",
     "fixture_order",
     "minute_in",
     "minute_out",

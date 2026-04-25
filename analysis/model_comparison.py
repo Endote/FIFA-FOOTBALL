@@ -97,23 +97,9 @@ def detect_accelerator() -> dict[str, Any]:
     except ImportError:
         torch = None
 
-    mlx_available = False
-    try:
-        import mlx.core as mx  # type: ignore
-
-        mlx_available = getattr(mx, "default_device", None) is not None
-    except Exception:
-        mlx_available = False
-
     if torch is not None and torch.backends.mps.is_available():
-        accelerator["preferred"] = "mlx"
+        accelerator["preferred"] = "mps"
         accelerator["tabpfn_device"] = "mps"
-        return accelerator
-
-    # MLX itself does not help here unless the estimator supports it. TabPFN uses torch/MPS.
-    if mlx_available and platform.system() == "Darwin":
-        accelerator["preferred"] = "mlx"
-        accelerator["tabpfn_device"] = "cpu"
         return accelerator
 
     if torch is not None and torch.cuda.is_available():
