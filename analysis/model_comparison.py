@@ -539,7 +539,7 @@ def get_trainers(
         "logistic_regression": lambda: fit_logistic_regression(x_train, y_train, x_val, numeric_cols, categorical_cols),
         "decision_tree": lambda: fit_decision_tree(x_train, y_train, x_val, numeric_cols, categorical_cols),
         "hist_gradient_boosting": lambda: fit_hist_gradient_boosting(x_train, y_train, x_val, numeric_cols, categorical_cols),
-        "tabpfn": lambda: fit_tabpfn(x_train, y_train, x_val, numeric_cols, categorical_cols, accelerator),
+        # "tabpfn": lambda: fit_tabpfn(x_train, y_train, x_val, numeric_cols, categorical_cols, accelerator),
         "xgboost": lambda: fit_xgboost(x_train, y_train, x_val, numeric_cols, categorical_cols, accelerator),
         "catboost": lambda: fit_catboost(x_train, y_train, x_val, categorical_cols, accelerator),
     }
@@ -673,7 +673,7 @@ def main(single_model: str | None = None) -> None:
             "logistic_regression",
             "decision_tree",
             "hist_gradient_boosting",
-            "tabpfn",
+            # "tabpfn",
             "xgboost",
             "catboost",
         ]

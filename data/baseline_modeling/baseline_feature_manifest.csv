@@ -3,7 +3,7 @@ player_appearance_id,dropped_from_model
 player_id,dropped_from_model
 fixture_id,dropped_from_model
 date,dropped_from_model
-checkpoint,dropped_from_model
+checkpoint,predictor
 checkpoint_period,dropped_from_model
 checkpoint_min,dropped_from_model
 position,predictor
@@ -37,5 +37,9 @@ last_15_received_succ,predictor
 last_15_received_unsucc,predictor
 cumul_received_succ,predictor
 cumul_received_unsucc,predictor
+last_15_received_succ_pressure,predictor
+last_15_received_unsucc_pressure,predictor
+cumul_received_succ_pressure,predictor
+cumul_received_unsucc_pressure,predictor
 split,split_metadata
 fixture_order,dropped_from_model
