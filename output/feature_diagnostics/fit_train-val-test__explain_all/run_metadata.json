@@ -1,0 +1,19 @@
+{
+  "fit_splits": [
+    "train",
+    "val",
+    "test"
+  ],
+  "explain_split": "all",
+  "corr_threshold": 0.85,
+  "top_n": 20,
+  "metrics": {
+    "average_precision": 0.21958475245030953,
+    "auroc": 0.8039854268382897,
+    "brier": 0.04967683470888809,
+    "balanced_accuracy_0_5": 0.5
+  },
+  "model_name": "catboost",
+  "output_dir": "output/feature_diagnostics/fit_train-val-test__explain_all",
+  "target_col": "scored_after"
+}

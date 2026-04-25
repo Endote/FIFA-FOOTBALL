@@ -5,5 +5,6 @@
   "target_col": "scored_after",
   "selection_metric": "average_precision",
   "secondary_metric": "auroc",
-  "calibration_metric": "brier_score"
+  "calibration_metric": "brier_score",
+  "catboost_calibration": "none"
 }

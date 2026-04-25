@@ -89,11 +89,11 @@ XGBOOST_PARAMS = {
 CATBOOST_PARAMS = {
     "loss_function": "Logloss",
     "eval_metric": "PRAUC",
-    "iterations": 2000,
+    "iterations": 3000,
     "learning_rate": 0.0033,
     "depth": 2,
     "l2_leaf_reg": 350,
-    "random_strength": 1.0,
+    "random_strength": 1,
     "early_stopping_rounds": 150,
     "random_seed": RANDOM_STATE,
     "verbose": 100,
