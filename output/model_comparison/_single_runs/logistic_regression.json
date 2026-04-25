@@ -2,15 +2,15 @@
   "status": "ok",
   "result": {
     "model_name": "logistic_regression",
-    "val_average_precision": 0.09321277494470062,
-    "val_auroc": 0.5785969349799136,
-    "val_brier_score": 0.24930913576517438,
-    "test_average_precision": 0.142601132087595,
-    "test_auroc": 0.6165220369947477,
-    "test_brier_score": 0.2454257626558204
+    "val_average_precision": 0.09488244657709735,
+    "val_auroc": 0.5838788870703764,
+    "val_brier_score": 0.24763250489678337,
+    "test_average_precision": 0.13978686036676619,
+    "test_auroc": 0.619376569993149,
+    "test_brier_score": 0.24497545214171174
   },
   "accelerator": {
-    "preferred": "mlx",
+    "preferred": "mps",
     "tabpfn_device": "mps",
     "xgboost_device": "cpu",
     "xgboost_tree_method": "hist",

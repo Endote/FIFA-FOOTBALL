@@ -3,7 +3,7 @@ player_appearance_id,dropped_from_model
 player_id,dropped_from_model
 fixture_id,dropped_from_model
 date,dropped_from_model
-checkpoint,predictor
+checkpoint,dropped_from_model
 checkpoint_period,dropped_from_model
 checkpoint_min,dropped_from_model
 position,predictor

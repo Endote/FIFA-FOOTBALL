@@ -2,15 +2,15 @@
   "status": "ok",
   "result": {
     "model_name": "decision_tree",
-    "val_average_precision": 0.13060036850212417,
-    "val_auroc": 0.7004166046719238,
-    "val_brier_score": 0.24697040098195736,
-    "test_average_precision": 0.09280606387976874,
-    "test_auroc": 0.7215117606759534,
-    "test_brier_score": 0.2343171561519374
+    "val_average_precision": 0.13011859049271457,
+    "val_auroc": 0.6963249516441006,
+    "val_brier_score": 0.24639264273337674,
+    "test_average_precision": 0.09357327909105097,
+    "test_auroc": 0.7297899063713176,
+    "test_brier_score": 0.23214597765331463
   },
   "accelerator": {
-    "preferred": "mlx",
+    "preferred": "mps",
     "tabpfn_device": "mps",
     "xgboost_device": "cpu",
     "xgboost_tree_method": "hist",
