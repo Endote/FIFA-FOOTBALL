@@ -36,11 +36,18 @@ ROW_FILTERS = [
     ("cumul_mean_max_speed", "<", 10.3),
 ]
 
-PERIOD_OFFSET = {
-    "half_1": 0,
-    "half_2": 45,
-    "extra_time_1": 90,
-    "extra_time_2": 105,
+PERIOD_PREFIX = {
+    "half_1": "H1",
+    "half_2": "H2",
+    "extra_time_1": "ET1",
+    "extra_time_2": "ET2",
+}
+
+PERIOD_ORDER = {
+    "half_1": 1,
+    "half_2": 2,
+    "extra_time_1": 3,
+    "extra_time_2": 4,
 }
 
 ABS_MINUTE_TO_CHECKPOINT = {
@@ -51,6 +58,7 @@ ABS_MINUTE_TO_CHECKPOINT = {
     75: "H2_30",
     90: "H2_45",
     105: "ET1_15",
+    120: "ET2_15",
 }
 
 CHECKPOINT_TO_ABS_MINUTE = {v: k for k, v in ABS_MINUTE_TO_CHECKPOINT.items()}
@@ -125,11 +133,36 @@ def apply_row_filters(base: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return kept, removed
 
 
-def minute_to_checkpoint(abs_minute: int) -> str | None:
-    if pd.isna(abs_minute) or abs_minute <= 0:
+def minute_to_bucket(minute: float) -> int | None:
+    if pd.isna(minute):
         return None
-    bucket = int(((int(abs_minute) - 1) // 15 + 1) * 15)
-    return ABS_MINUTE_TO_CHECKPOINT.get(bucket)
+    minute = float(minute)
+    if minute <= 0:
+        return None
+    # Event data can include stoppage-time values (>45) within the same period.
+    # We cap them at the 45-minute checkpoint for that period.
+    if minute <= 15:
+        return 15
+    if minute <= 30:
+        return 30
+    return 45
+
+
+def period_minute_to_checkpoint(period: str, minute: float) -> str | None:
+    period_key = str(period).strip().lower()
+    prefix = PERIOD_PREFIX.get(period_key)
+    if prefix is None:
+        return None
+    bucket = minute_to_bucket(minute)
+    if bucket is None:
+        return None
+    return f"{prefix}_{bucket}"
+
+
+def parse_bool(series: pd.Series) -> pd.Series:
+    return (
+        series.astype("string").str.strip().str.lower().isin({"1", "true", "t", "yes", "y"})
+    )
 
 
 def build_received_pass_features() -> pd.DataFrame:
@@ -137,14 +170,28 @@ def build_received_pass_features() -> pd.DataFrame:
     passes = passes[passes["stage"].isin(["top", "middle"])].copy()
     passes = passes[passes["addressee_player_appearance_id"].notna()].copy()
     passes["addressee_player_appearance_id"] = passes["addressee_player_appearance_id"].astype(int)
-    passes["abs_minute"] = passes["period"].map(PERIOD_OFFSET) + passes["minute"]
-    passes["checkpoint"] = passes["abs_minute"].apply(minute_to_checkpoint)
+    passes["checkpoint"] = [
+        period_minute_to_checkpoint(period, minute)
+        for period, minute in zip(passes["period"], passes["minute"])
+    ]
+    passes["checkpoint_period_order"] = (
+        passes["period"].astype("string").str.lower().map(PERIOD_ORDER)
+    )
+    passes["checkpoint_bucket"] = passes["minute"].apply(minute_to_bucket)
     passes = passes[passes["checkpoint"].notna()].copy()
-    passes["received_succ"] = passes["accurate"].astype(int)
-    passes["received_unsucc"] = (~passes["accurate"]).astype(int)
+    passes["received_succ"] = parse_bool(passes["accurate"]).astype(int)
+    passes["received_unsucc"] = 1 - passes["received_succ"]
 
     last15 = (
-        passes.groupby(["addressee_player_appearance_id", "checkpoint"], as_index=False)
+        passes.groupby(
+            [
+                "addressee_player_appearance_id",
+                "checkpoint",
+                "checkpoint_period_order",
+                "checkpoint_bucket",
+            ],
+            as_index=False,
+        )
         .agg(
             last_15_received_succ=("received_succ", "sum"),
             last_15_received_unsucc=("received_unsucc", "sum"),
@@ -152,16 +199,16 @@ def build_received_pass_features() -> pd.DataFrame:
         .rename(columns={"addressee_player_appearance_id": "player_appearance_id"})
     )
 
-    checkpoint_order = {"H1_15": 1, "H1_30": 2, "H1_45": 3, "H2_15": 4, "H2_30": 5, "H2_45": 6, "ET1_15": 7}
-    last15["checkpoint_order"] = last15["checkpoint"].map(checkpoint_order)
-    last15 = last15.sort_values(["player_appearance_id", "checkpoint_order"])
+    last15 = last15.sort_values(
+        ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket"]
+    )
     last15["cumul_received_succ"] = (
         last15.groupby("player_appearance_id")["last_15_received_succ"].cumsum()
     )
     last15["cumul_received_unsucc"] = (
         last15.groupby("player_appearance_id")["last_15_received_unsucc"].cumsum()
     )
-    return last15.drop(columns=["checkpoint_order"])
+    return last15.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
 
 
 def main() -> None:
