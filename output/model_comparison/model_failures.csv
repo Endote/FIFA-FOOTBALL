@@ -1,0 +1,3 @@
+model_name,error
+tabpfn,"usage: model_comparison.py [-h] [--single-model {xgboost,catboost}]
+model_comparison.py: error: argument --single-model: invalid choice: 'tabpfn' (choose from 'xgboost', 'catboost')"

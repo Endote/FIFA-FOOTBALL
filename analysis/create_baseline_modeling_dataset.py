@@ -6,7 +6,8 @@ import pandas as pd
 
 
 DATA_DIR = Path("data")
-OUTPUT_DIR = Path("output/datasets/baseline_modeling")
+OUTPUT_DIR = Path("data/baseline_modeling")
+PASS_FILE = DATA_DIR / "player_appearance_pass.csv"
 
 TRAIN_SHARE_TARGET = 0.60
 VAL_SHARE_TARGET = 0.20
@@ -24,6 +25,30 @@ DROP_FROM_MODEL = [
 ]
 
 TARGET_COL = "scored_after"
+
+ROW_FILTERS = [
+    ("last15_distance", "<", 1000),
+    ("cumul_distance", "<", 1000),
+    ("last15_mean_max_speed", "<", 10.3),
+    ("cumul_mean_max_speed", "<", 10.3),
+]
+
+PERIOD_OFFSET = {
+    "half_1": 0,
+    "half_2": 45,
+    "extra_time_1": 90,
+    "extra_time_2": 105,
+}
+
+ABS_MINUTE_TO_CHECKPOINT = {
+    15: "H1_15",
+    30: "H1_30",
+    45: "H1_45",
+    60: "H2_15",
+    75: "H2_30",
+    90: "H2_45",
+    105: "ET1_15",
+}
 
 
 def build_fixture_split(base: pd.DataFrame) -> pd.DataFrame:
@@ -83,14 +108,64 @@ def summarize_split(df: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def apply_row_filters(base: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    mask = pd.Series(True, index=base.index)
+    for col, op, threshold in ROW_FILTERS:
+        if op != "<":
+            raise ValueError(f"Unsupported operator: {op}")
+        mask &= base[col] < threshold
+
+    removed = base.loc[~mask].copy()
+    kept = base.loc[mask].copy()
+    return kept, removed
+
+
+def minute_to_checkpoint(abs_minute: int) -> str | None:
+    if pd.isna(abs_minute) or abs_minute <= 0:
+        return None
+    bucket = int(((int(abs_minute) - 1) // 15 + 1) * 15)
+    return ABS_MINUTE_TO_CHECKPOINT.get(bucket)
+
+
+def build_received_pass_features() -> pd.DataFrame:
+    passes = pd.read_csv(PASS_FILE)
+    passes = passes[passes["stage"].isin(["top", "middle"])].copy()
+    passes = passes[passes["addressee_player_appearance_id"].notna()].copy()
+    passes["addressee_player_appearance_id"] = passes["addressee_player_appearance_id"].astype(int)
+    passes["abs_minute"] = passes["period"].map(PERIOD_OFFSET) + passes["minute"]
+    passes["checkpoint"] = passes["abs_minute"].apply(minute_to_checkpoint)
+    passes = passes[passes["checkpoint"].notna()].copy()
+    passes["received_succ"] = passes["accurate"].astype(int)
+    passes["received_unsucc"] = (~passes["accurate"]).astype(int)
+
+    return (
+        passes.groupby(["addressee_player_appearance_id", "checkpoint"], as_index=False)
+        .agg(
+            last_15_received_succ=("received_succ", "sum"),
+            last_15_received_unsucc=("received_unsucc", "sum"),
+        )
+        .rename(columns={"addressee_player_appearance_id": "player_appearance_id"})
+    )
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
     base = base.sort_values(["date", "fixture_id", "player_appearance_id", "checkpoint"]).reset_index(drop=True)
+    received_pass_features = build_received_pass_features()
+    base = base.merge(received_pass_features, on=["player_appearance_id", "checkpoint"], how="left")
+    base[["last_15_received_succ", "last_15_received_unsucc"]] = base[
+        ["last_15_received_succ", "last_15_received_unsucc"]
+    ].fillna(0).astype(int)
+    filtered_base, removed_rows = apply_row_filters(base)
 
-    fixture_split = build_fixture_split(base)
-    dataset = base.merge(fixture_split[["date", "fixture_id", "split", "fixture_order"]], on=["date", "fixture_id"], how="left")
+    fixture_split = build_fixture_split(filtered_base)
+    dataset = filtered_base.merge(
+        fixture_split[["date", "fixture_id", "split", "fixture_order"]],
+        on=["date", "fixture_id"],
+        how="left",
+    )
 
     model_columns = [col for col in dataset.columns if col not in DROP_FROM_MODEL]
     model_dataset = dataset[model_columns].copy()
@@ -101,6 +176,7 @@ def main() -> None:
     model_dataset.to_csv(OUTPUT_DIR / "baseline_all_model_ready.csv", index=False)
     fixture_split.to_csv(OUTPUT_DIR / "baseline_fixture_split.csv", index=False)
     split_summary.to_csv(OUTPUT_DIR / "baseline_split_summary.csv", index=False)
+    removed_rows.to_csv(OUTPUT_DIR / "baseline_removed_rows_quality_filters.csv", index=False)
 
     for split_name in ["train", "val", "test"]:
         split_full = dataset[dataset["split"] == split_name].copy()
@@ -130,7 +206,16 @@ def main() -> None:
 ## Source
 
 - Source table: [players_quarters_final.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/players_quarters_final.csv)
-- Output directory: [baseline_modeling](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling)
+- Output directory: [baseline_modeling](/Users/norbert.jaworski/Documents/small/WEC2026/data/baseline_modeling)
+
+## Row quality filters applied before splitting
+
+- `last15_distance < 1000`
+- `cumul_distance < 1000`
+- `last15_mean_max_speed < 10.3`
+- `cumul_mean_max_speed < 10.3`
+- Removed rows: {len(removed_rows)}
+- Removed player appearances: {removed_rows['player_appearance_id'].nunique()}
 
 ## Split design
 
@@ -147,20 +232,6 @@ def main() -> None:
 
 {split_summary.to_string(index=False)}
 
-## Files
-
-- [baseline_all_with_splits.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_all_with_splits.csv)
-- [baseline_all_model_ready.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_all_model_ready.csv)
-- [baseline_train_full.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_train_full.csv)
-- [baseline_val_full.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_val_full.csv)
-- [baseline_test_full.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_test_full.csv)
-- [baseline_train_model_ready.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_train_model_ready.csv)
-- [baseline_val_model_ready.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_val_model_ready.csv)
-- [baseline_test_model_ready.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_test_model_ready.csv)
-- [baseline_fixture_split.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_fixture_split.csv)
-- [baseline_split_summary.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_split_summary.csv)
-- [baseline_feature_manifest.csv](/Users/norbert.jaworski/Documents/small/WEC2026/output/datasets/baseline_modeling/baseline_feature_manifest.csv)
-
 ## What is removed from the model-ready files
 
 - `player_appearance_id`
@@ -172,25 +243,11 @@ def main() -> None:
 - `checkpoint_min`
 - `fixture_order`
 
-These are retained in the `*_full.csv` files for auditability and teammate-side inspection, but removed from the `*_model_ready.csv` files before model fitting.
+## Added baseline extension features
 
-## What stays in the model-ready files
+- `last_15_received_succ`
+- `last_15_received_unsucc`
 
-- `checkpoint`
-- `position`
-- `is_home`
-- `formation`
-- `minute_in`
-- `minute_out`
-- `subbed`
-- all baseline `last15_*` and `cumul_*` features
-- target `scored_after`
-- split label `split`
-
-## Leakage note
-
-- The baseline table already excludes prior goals from the shot aggregates used to form `last15_*` and `cumul_*` shot features.
-- No additional helper columns such as absolute-time fields were added to the exported model-ready dataset.
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)

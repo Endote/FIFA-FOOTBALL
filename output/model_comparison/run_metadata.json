@@ -1,0 +1,9 @@
+{
+  "train_path": "data/baseline_modeling/baseline_train_model_ready.csv",
+  "val_path": "data/baseline_modeling/baseline_val_model_ready.csv",
+  "test_path": "data/baseline_modeling/baseline_test_model_ready.csv",
+  "target_col": "scored_after",
+  "selection_metric": "average_precision",
+  "secondary_metric": "auroc",
+  "calibration_metric": "brier_score"
+}
