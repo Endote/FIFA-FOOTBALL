@@ -40,6 +40,7 @@ DROP_FROM_MODEL = [
     "cumul_peak_speed",
     "last15_hsr",
     "cumul_hsr",
+    "cumul_sprin"
     #"subbed",
 ]
 
@@ -125,6 +126,8 @@ SHOT_RATE_COLS = [
     "last_15_shots_under_pressure_rate",
     "cumul_shots_under_pressure_rate",
 ]
+
+CSV_NULL_TOKENS = ["NULL", "null", ""]
 
 
 def parse_args() -> argparse.Namespace:
@@ -379,8 +382,12 @@ def resolve_shot_file() -> Path:
     )
 
 
+def read_csv_with_nulls(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path, na_values=CSV_NULL_TOKENS)
+
+
 def build_received_pass_features() -> pd.DataFrame:
-    passes = pd.read_csv(PASS_FILE)
+    passes = read_csv_with_nulls(PASS_FILE)
     passes = passes[passes["stage"].isin(["top", "middle"])].copy()
     passes = passes[passes["addressee_player_appearance_id"].notna()].copy()
     passes["addressee_player_appearance_id"] = passes["addressee_player_appearance_id"].astype(int)
@@ -418,7 +425,7 @@ def build_received_pass_features() -> pd.DataFrame:
 
 
 def build_pressure_features() -> pd.DataFrame:
-    pressure = pd.read_csv(PRESSURE_FILE)
+    pressure = read_csv_with_nulls(PRESSURE_FILE)
     pressure = add_checkpoint_columns(pressure)
     pressure["accurate_bool"] = parse_bool(pressure["accurate"])
 
@@ -505,7 +512,7 @@ def build_pressure_features() -> pd.DataFrame:
 
 def build_shot_features() -> pd.DataFrame:
     shots_path = resolve_shot_file()
-    shots = pd.read_csv(shots_path)
+    shots = read_csv_with_nulls(shots_path)
 
     # Keep only relevant spatial stages.
     shots = shots[shots["stage"].isin(["top", "middle"])].copy()
@@ -583,7 +590,11 @@ def build_feature_spine_from_selected_sources(selected_sources: set[str]) -> pd.
 
 
 def build_label_context_table() -> pd.DataFrame:
-    base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
+    base = pd.read_csv(
+        DATA_DIR / "players_quarters_final.csv",
+        parse_dates=["date"],
+        na_values=CSV_NULL_TOKENS,
+    )
     label_cols = ["player_appearance_id", "checkpoint", "date", "fixture_id", "player_id", TARGET_COL]
     labels = base[label_cols].copy()
     labels = labels.drop_duplicates(subset=["player_appearance_id", "checkpoint"])
@@ -598,7 +609,11 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Use players_quarters_final as the base dataset and merge selected aggregates into it.
-    base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
+    base = pd.read_csv(
+        DATA_DIR / "players_quarters_final.csv",
+        parse_dates=["date"],
+        na_values=CSV_NULL_TOKENS,
+    )
     base = base.sort_values(
         ["date", "fixture_id", "player_appearance_id", "checkpoint"]
     ).reset_index(drop=True)
