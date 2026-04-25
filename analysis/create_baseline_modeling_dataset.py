@@ -32,7 +32,6 @@ DROP_FROM_MODEL = [
     "minute_in",
     "minute_out",
     "subbed",
-    #"formation"
     "cumul_distance",
     "cumul_mean_max_speed",
     "last15_distance",
@@ -41,7 +40,17 @@ DROP_FROM_MODEL = [
     "cumul_peak_speed",
     "last15_hsr",
     "cumul_hsr",
-    #"subbed",
+
+    ### feature Norbert test
+    "last15_shots_top_third",
+    "last_15_shots_under_pressure",
+    "last15_shots_on_target",
+    "last_15_shots_set_play",
+    "last_15_shots_special",
+    "last_15_shots_blocked",
+    # "cumul_received_succ",
+    "last15_middle_sprint_count",
+    
 ]
 
 TARGET_COL = "scored_after"
@@ -167,6 +176,38 @@ RUN_COUNT_COLS = [
     "cumul_bottom_sprint_count",
     "cumul_bottom_hsr_count",
 ]
+RUN_SHARE_COLS = [
+    "cumul_top_run_share",
+    "cumul_middle_run_share",
+    "cumul_bottom_run_share",
+    "cumul_top_sprint_share",
+    "cumul_top_hsr_share",
+    "cumul_bottom_sprint_share",
+    "last15_top_run_share",
+    "last15_top_sprint_share",
+]
+RUN_DISTANCE_COLS = [
+    "top_sprint_distance",
+    "top_hsr_distance",
+    "distance_per_run",
+    "distance_per_possession",
+    "top_distance_share",
+    "sprint_distance_share",
+    "avg_top_sprint_distance",
+]
+RUN_POSSESSION_COLS = [
+    "cumul_unique_run_possessions",
+    "last15_unique_run_possessions",
+    "runs_per_possession",
+    "sprints_per_possession",
+    "top_runs_per_possession",
+    "share_of_possessions_with_top_run",
+    "share_of_possessions_with_sprint",
+    "possessions_with_2plus_runs",
+    "possessions_with_2plus_top_runs",
+    "possessions_with_sprint_and_hsr",
+    "top_run_repeat_possession_rate",
+]
 RUN_CUMUL_COLS = [
     "cumul_top_sprint_count",
     "cumul_top_hsr_count",
@@ -174,6 +215,7 @@ RUN_CUMUL_COLS = [
     "cumul_middle_hsr_count",
     "cumul_bottom_sprint_count",
     "cumul_bottom_hsr_count",
+    "cumul_unique_run_possessions",
 ]
 CHECKPOINT_ORDER = {checkpoint: idx for idx, checkpoint in enumerate(ABS_MINUTE_TO_CHECKPOINT.values(), start=1)}
 
@@ -633,6 +675,11 @@ def build_run_features() -> pd.DataFrame:
     runs = runs[runs["stage"].isin(["top", "middle", "bottom"])].copy()
     runs = runs[runs["run_type"].isin(["sprint", "hsr"])].copy()
     runs = add_checkpoint_columns(runs)
+    runs["possession"] = pd.to_numeric(runs["possession"], errors="coerce")
+    runs["distance"] = pd.to_numeric(runs["distance"], errors="coerce")
+    runs["max_speed"] = pd.to_numeric(runs["max_speed"], errors="coerce")
+    safe_distance_mask = runs["distance"].notna() & runs["max_speed"].notna() & (runs["distance"] < 1000) & (runs["max_speed"] <= 10.3)
+    safe_runs = runs[safe_distance_mask].copy()
 
     grouped = (
         runs.groupby(
@@ -678,6 +725,151 @@ def build_run_features() -> pd.DataFrame:
             ),
         )
     )
+    safe_grouped = (
+        safe_runs.groupby(
+            ["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+            as_index=False,
+        )
+        .agg(
+            top_sprint_distance=(
+                "distance",
+                lambda s: float(
+                    safe_runs.loc[s.index, "distance"][
+                        (safe_runs.loc[s.index, "stage"] == "top")
+                        & (safe_runs.loc[s.index, "run_type"] == "sprint")
+                    ].sum()
+                ),
+            ),
+            top_hsr_distance=(
+                "distance",
+                lambda s: float(
+                    safe_runs.loc[s.index, "distance"][
+                        (safe_runs.loc[s.index, "stage"] == "top")
+                        & (safe_runs.loc[s.index, "run_type"] == "hsr")
+                    ].sum()
+                ),
+            ),
+            safe_total_distance=("distance", "sum"),
+            safe_run_count=("id", "size"),
+            safe_total_sprint_distance=(
+                "distance",
+                lambda s: float(
+                    safe_runs.loc[s.index, "distance"][
+                        safe_runs.loc[s.index, "run_type"] == "sprint"
+                    ].sum()
+                ),
+            ),
+            safe_top_total_distance=(
+                "distance",
+                lambda s: float(
+                    safe_runs.loc[s.index, "distance"][
+                        safe_runs.loc[s.index, "stage"] == "top"
+                    ].sum()
+                ),
+            ),
+            safe_top_sprint_count=(
+                "id",
+                lambda s: int(
+                    ((safe_runs.loc[s.index, "stage"] == "top") & (safe_runs.loc[s.index, "run_type"] == "sprint")).sum()
+                ),
+            ),
+            safe_unique_possessions=("possession", "nunique"),
+        )
+    )
+    possession_runs = runs[runs["possession"].notna()].copy()
+    possession_level = (
+        possession_runs.groupby(
+            [
+                "player_appearance_id",
+                "checkpoint",
+                "checkpoint_period_order",
+                "checkpoint_bucket",
+                "possession",
+            ],
+            as_index=False,
+        )
+        .agg(
+            possession_run_count=("id", "size"),
+            possession_sprint_count=(
+                "id",
+                lambda s: int((possession_runs.loc[s.index, "run_type"] == "sprint").sum()),
+            ),
+            possession_hsr_count=(
+                "id",
+                lambda s: int((possession_runs.loc[s.index, "run_type"] == "hsr").sum()),
+            ),
+            possession_top_run_count=(
+                "id",
+                lambda s: int((possession_runs.loc[s.index, "stage"] == "top").sum()),
+            ),
+        )
+    )
+    possession_level["has_top_run"] = (possession_level["possession_top_run_count"] > 0).astype(int)
+    possession_level["has_sprint"] = (possession_level["possession_sprint_count"] > 0).astype(int)
+    possession_level["has_sprint_and_hsr"] = (
+        (possession_level["possession_sprint_count"] > 0) & (possession_level["possession_hsr_count"] > 0)
+    ).astype(int)
+    possession_level["has_2plus_runs"] = (possession_level["possession_run_count"] >= 2).astype(int)
+    possession_level["has_2plus_top_runs"] = (possession_level["possession_top_run_count"] >= 2).astype(int)
+
+    possession_grouped = (
+        possession_level.groupby(
+            ["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+            as_index=False,
+        )
+        .agg(
+            last15_unique_run_possessions=("possession", "nunique"),
+            possessions_with_2plus_runs=("has_2plus_runs", "sum"),
+            possessions_with_2plus_top_runs=("has_2plus_top_runs", "sum"),
+            possessions_with_sprint_and_hsr=("has_sprint_and_hsr", "sum"),
+            possessions_with_top_run=("has_top_run", "sum"),
+            possessions_with_sprint=("has_sprint", "sum"),
+        )
+    )
+    possession_first_seen = (
+        possession_level.sort_values(
+            ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket", "possession"]
+        )
+        .drop_duplicates(subset=["player_appearance_id", "possession"], keep="first")
+        .groupby(
+            ["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+            as_index=False,
+        )
+        .agg(new_run_possessions=("possession", "size"))
+    )
+    grouped = grouped.merge(
+        safe_grouped,
+        on=["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+        how="left",
+    )
+    grouped = grouped.merge(
+        possession_grouped,
+        on=["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+        how="left",
+    )
+    grouped = grouped.merge(
+        possession_first_seen,
+        on=["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+        how="left",
+    )
+    safe_fill_cols = [
+        "top_sprint_distance",
+        "top_hsr_distance",
+        "safe_total_distance",
+        "safe_run_count",
+        "safe_total_sprint_distance",
+        "safe_top_total_distance",
+        "safe_top_sprint_count",
+        "safe_unique_possessions",
+        "last15_unique_run_possessions",
+        "possessions_with_2plus_runs",
+        "possessions_with_2plus_top_runs",
+        "possessions_with_sprint_and_hsr",
+        "possessions_with_top_run",
+        "possessions_with_sprint",
+        "new_run_possessions",
+    ]
+    grouped[safe_fill_cols] = grouped[safe_fill_cols].fillna(0.0)
 
     grouped = grouped.sort_values(
         ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket"]
@@ -696,8 +888,129 @@ def build_run_features() -> pd.DataFrame:
     grouped["cumul_bottom_hsr_count"] = grouped.groupby("player_appearance_id")[
         "last15_bottom_hsr_count"
     ].cumsum()
+    grouped["cumul_unique_run_possessions"] = grouped.groupby("player_appearance_id")[
+        "new_run_possessions"
+    ].cumsum()
 
-    return grouped.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
+    grouped["last15_total_run_count"] = (
+        grouped["last15_top_sprint_count"]
+        + grouped["last15_top_hsr_count"]
+        + grouped["last15_middle_sprint_count"]
+        + grouped["last15_middle_hsr_count"]
+        + grouped["last15_bottom_sprint_count"]
+        + grouped["last15_bottom_hsr_count"]
+    )
+    grouped["cumul_total_run_count"] = (
+        grouped["cumul_top_sprint_count"]
+        + grouped["cumul_top_hsr_count"]
+        + grouped["cumul_middle_sprint_count"]
+        + grouped["cumul_middle_hsr_count"]
+        + grouped["cumul_bottom_sprint_count"]
+        + grouped["cumul_bottom_hsr_count"]
+    )
+    grouped["cumul_total_sprint_count"] = (
+        grouped["cumul_top_sprint_count"]
+        + grouped["cumul_middle_sprint_count"]
+        + grouped["cumul_bottom_sprint_count"]
+    )
+    grouped["cumul_total_hsr_count"] = (
+        grouped["cumul_top_hsr_count"]
+        + grouped["cumul_middle_hsr_count"]
+        + grouped["cumul_bottom_hsr_count"]
+    )
+
+    grouped["cumul_top_run_share"] = (
+        (grouped["cumul_top_sprint_count"] + grouped["cumul_top_hsr_count"])
+        / grouped["cumul_total_run_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["cumul_middle_run_share"] = (
+        (grouped["cumul_middle_sprint_count"] + grouped["cumul_middle_hsr_count"])
+        / grouped["cumul_total_run_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["cumul_bottom_run_share"] = (
+        (grouped["cumul_bottom_sprint_count"] + grouped["cumul_bottom_hsr_count"])
+        / grouped["cumul_total_run_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["cumul_top_sprint_share"] = (
+        grouped["cumul_top_sprint_count"] / grouped["cumul_total_sprint_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["cumul_top_hsr_share"] = (
+        grouped["cumul_top_hsr_count"] / grouped["cumul_total_hsr_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["cumul_bottom_sprint_share"] = (
+        grouped["cumul_bottom_sprint_count"] / grouped["cumul_total_sprint_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["last15_top_run_share"] = (
+        (grouped["last15_top_sprint_count"] + grouped["last15_top_hsr_count"])
+        / grouped["last15_total_run_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["last15_top_sprint_share"] = (
+        grouped["last15_top_sprint_count"]
+        / (
+            grouped["last15_top_sprint_count"]
+            + grouped["last15_middle_sprint_count"]
+            + grouped["last15_bottom_sprint_count"]
+        ).replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["distance_per_run"] = (
+        grouped["safe_total_distance"] / grouped["safe_run_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["distance_per_possession"] = (
+        grouped["safe_total_distance"] / grouped["safe_unique_possessions"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["top_distance_share"] = (
+        grouped["safe_top_total_distance"] / grouped["safe_total_distance"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["sprint_distance_share"] = (
+        grouped["safe_total_sprint_distance"] / grouped["safe_total_distance"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["avg_top_sprint_distance"] = (
+        grouped["top_sprint_distance"] / grouped["safe_top_sprint_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["runs_per_possession"] = (
+        grouped["last15_total_run_count"] / grouped["last15_unique_run_possessions"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["sprints_per_possession"] = (
+        (
+            grouped["last15_top_sprint_count"]
+            + grouped["last15_middle_sprint_count"]
+            + grouped["last15_bottom_sprint_count"]
+        )
+        / grouped["last15_unique_run_possessions"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["top_runs_per_possession"] = (
+        (grouped["last15_top_sprint_count"] + grouped["last15_top_hsr_count"])
+        / grouped["last15_unique_run_possessions"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["share_of_possessions_with_top_run"] = (
+        grouped["possessions_with_top_run"] / grouped["last15_unique_run_possessions"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["share_of_possessions_with_sprint"] = (
+        grouped["possessions_with_sprint"] / grouped["last15_unique_run_possessions"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["top_run_repeat_possession_rate"] = (
+        grouped["possessions_with_2plus_top_runs"] / grouped["last15_unique_run_possessions"].replace(0, pd.NA)
+    ).fillna(0.0)
+
+    return grouped.drop(
+        columns=[
+            "checkpoint_period_order",
+            "checkpoint_bucket",
+            "last15_total_run_count",
+            "cumul_total_run_count",
+            "cumul_total_sprint_count",
+            "cumul_total_hsr_count",
+            "safe_total_distance",
+            "safe_run_count",
+            "safe_total_sprint_distance",
+            "safe_top_total_distance",
+            "safe_top_sprint_count",
+            "safe_unique_possessions",
+            "possessions_with_top_run",
+            "possessions_with_sprint",
+            "new_run_possessions",
+        ]
+    )
 
 
 def build_feature_spine_from_selected_sources(selected_sources: set[str]) -> pd.DataFrame:
@@ -763,6 +1076,23 @@ def main() -> None:
             if col in base.columns:
                 base[col] = base[col].fillna(0).astype(int)
         for col in PRESSURE_RATE_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0.0)
+
+    if "runs" in selected_sources:
+        run_features = build_run_features()
+        base = base.merge(run_features, on=["player_appearance_id", "checkpoint"], how="left")
+        base = carry_forward_cumulative_features(base, RUN_CUMUL_COLS)
+        for col in RUN_COUNT_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0).astype(int)
+        for col in RUN_SHARE_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0.0)
+        for col in RUN_DISTANCE_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0.0)
+        for col in RUN_POSSESSION_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0.0)
 
@@ -840,7 +1170,7 @@ def main() -> None:
 
 ## Added baseline extension features
 
-{chr(10).join([f"- `{c}`" for c in (PASS_FEATURE_COLS if "passes" in selected_sources else []) + (PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS if "pressure" in selected_sources else []) + (RUN_COUNT_COLS if "runs" in selected_sources else []) + (SHOT_COUNT_COLS + SHOT_RATE_COLS if "shots" in selected_sources else [])]) if selected_sources else "- none"}
+{chr(10).join([f"- `{c}`" for c in (PASS_FEATURE_COLS if "passes" in selected_sources else []) + (PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS if "pressure" in selected_sources else []) + ((RUN_COUNT_COLS + RUN_SHARE_COLS + RUN_DISTANCE_COLS + RUN_POSSESSION_COLS) if "runs" in selected_sources else []) + (SHOT_COUNT_COLS + SHOT_RATE_COLS if "shots" in selected_sources else [])]) if selected_sources else "- none"}
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)
@@ -871,6 +1201,12 @@ def main() -> None:
             print(f"- {col}")
     if "runs" in selected_sources:
         for col in RUN_COUNT_COLS:
+            print(f"- {col}")
+        for col in RUN_SHARE_COLS:
+            print(f"- {col}")
+        for col in RUN_DISTANCE_COLS:
+            print(f"- {col}")
+        for col in RUN_POSSESSION_COLS:
             print(f"- {col}")
     if "shots" in selected_sources:
         for col in SHOT_COUNT_COLS + SHOT_RATE_COLS:

@@ -4,6 +4,10 @@ TAKE CURRENT REPO STATE AS GRANTED, if something was not done via agent interfac
 
 ADD each raw source derrived metrics properly in the merge-sources and parse_merge_sources in the `create_baseline_modeling_dataset` file.
 
+after new feature engineering rebuild the data with all sources by default.
+
+
+
 ## Modeling Pipeline Standards
 
 Use these directives as the default standard for all top-level modeling work in this repository unless a later explicit instruction overrides them.
