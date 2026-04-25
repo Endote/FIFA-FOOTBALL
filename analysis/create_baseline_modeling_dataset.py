@@ -173,6 +173,21 @@ def filter_model_columns_by_window(
     return keep
 
 
+def get_added_extension_features(selected_sources: set[str], window_mode: str) -> list[str]:
+    extension_cols: list[str] = []
+    if "passes" in selected_sources:
+        extension_cols.extend(PASS_FEATURE_COLS)
+    if "pressure" in selected_sources:
+        extension_cols.extend(PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS)
+
+    extension_cols.append("cumul_in_game_time")
+    return filter_model_columns_by_window(
+        columns=extension_cols,
+        target_col=TARGET_COL,
+        window_mode=window_mode,
+    )
+
+
 def build_fixture_split(base: pd.DataFrame) -> pd.DataFrame:
     fixtures = (
         base.groupby(["date", "fixture_id"])
@@ -479,6 +494,11 @@ def main() -> None:
     )
     feature_manifest.to_csv(OUTPUT_DIR / "baseline_feature_manifest.csv", index=False)
 
+    added_extension_features = get_added_extension_features(
+        selected_sources=selected_sources,
+        window_mode=window_mode,
+    )
+
     summary_md = f"""# Baseline Modeling Dataset
 
 ## Source
@@ -497,8 +517,7 @@ def main() -> None:
 
 ## Added baseline extension features
 
-{chr(10).join([f"- `{c}`" for c in (PASS_FEATURE_COLS if "passes" in selected_sources else []) + (PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS if "pressure" in selected_sources else [])]) if selected_sources else "- none"}
-- `cumul_in_game_time`
+{chr(10).join([f"- `{c}`" for c in added_extension_features]) if added_extension_features else "- none"}
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)
@@ -515,15 +534,11 @@ def main() -> None:
     print(split_summary.to_string(index=False))
     print()
     print("## Added baseline extension features")
-    if "passes" in selected_sources:
-        print("- last_15_received_succ")
-        print("- last_15_received_unsucc")
-        print("- cumul_received_succ")
-        print("- cumul_received_unsucc")
-    if "pressure" in selected_sources:
-        for col in PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS:
+    if added_extension_features:
+        for col in added_extension_features:
             print(f"- {col}")
-    print("- cumul_in_game_time")
+    else:
+        print("- none")
 
 
 if __name__ == "__main__":

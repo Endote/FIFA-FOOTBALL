@@ -2,12 +2,12 @@
   "status": "ok",
   "result": {
     "model_name": "hist_gradient_boosting",
-    "val_average_precision": 0.14741620509529668,
-    "val_auroc": 0.6635545305758072,
-    "val_brier_score": 0.15887768481900835,
-    "test_average_precision": 0.1501546444536212,
-    "test_auroc": 0.6780657684402832,
-    "test_brier_score": 0.17522142676499544
+    "val_average_precision": 0.11865437361963421,
+    "val_auroc": 0.601212617170064,
+    "val_brier_score": 0.11352866810434167,
+    "test_average_precision": 0.11492425038325566,
+    "test_auroc": 0.6671043617264216,
+    "test_brier_score": 0.10014900407589582
   },
   "accelerator": {
     "preferred": "mps",

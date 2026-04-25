@@ -2,12 +2,12 @@
   "status": "ok",
   "result": {
     "model_name": "xgboost",
-    "val_average_precision": 0.20100454231583198,
-    "val_auroc": 0.7375204582651391,
-    "val_brier_score": 0.05994588881731033,
-    "test_average_precision": 0.144713078188783,
-    "test_auroc": 0.7527403516784653,
-    "test_brier_score": 0.04187801107764244
+    "val_average_precision": 0.18004301576672646,
+    "val_auroc": 0.6957298021127809,
+    "val_brier_score": 0.06051954999566078,
+    "test_average_precision": 0.1466884379841855,
+    "test_auroc": 0.7035282027860242,
+    "test_brier_score": 0.04222995415329933
   },
   "accelerator": {
     "preferred": "mps",

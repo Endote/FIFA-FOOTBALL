@@ -3,7 +3,8 @@
 ## Source
 
 - Source table: [players_quarters_final.csv](/Users/norbert.jaworski/Documents/small/WEC2026/data/players_quarters_final.csv)
-- Extension source(s): `passes`
+- Extension source(s): `passes,pressure`
+- Feature-window mode: `cumul`
 - Output directory: [baseline_modeling](/Users/norbert.jaworski/Documents/small/WEC2026/data/baseline_modeling)
 
 ## Requested 60 / 20 / 20 split
@@ -18,8 +19,14 @@ train  1896        20                 493      263        107       0.056435   0
 
 ## Added baseline extension features
 
-- `last_15_received_succ`
-- `last_15_received_unsucc`
 - `cumul_received_succ`
 - `cumul_received_unsucc`
+- `cumul_times_pressured`
+- `cumul_pressured_succ`
+- `cumul_pressured_unsucc`
+- `cumul_pressures_applied`
+- `cumul_pressures_won`
+- `cumul_pressures_lost`
+- `cumul_pressured_success_rate`
+- `cumul_pressure_success_rate`
 - `cumul_in_game_time`
