@@ -31,15 +31,15 @@ DROP_FROM_MODEL = [
     "minute_in",
     "minute_out",
     "subbed",
-    "formation"
-    #"cumul_distance",
-    #"cumul_mean_max_speed",
-    #"last15_distance",
-    #"last15_mean_max_speed",
-    #"last15_peak_speed",
-    #"cumul_peak_speed",
-    #"last15_hsr",
-    #"cumul_hsr",
+    #"formation"
+    "cumul_distance",
+    "cumul_mean_max_speed",
+    "last15_distance",
+    "last15_mean_max_speed",
+    "last15_peak_speed",
+    "cumul_peak_speed",
+    "last15_hsr",
+    "cumul_hsr",
     #"subbed",
 ]
 
@@ -597,38 +597,44 @@ def main() -> None:
     window_mode = args.feature_window
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    feature_spine = build_feature_spine_from_selected_sources(selected_sources)
-    labels = build_label_context_table()
-    dataset_raw = feature_spine.merge(
-        labels,
-        on=["player_appearance_id", "checkpoint"],
-        how="inner",
-    )
-
-    if "passes" in selected_sources:
-        for col in PASS_FEATURE_COLS:
-            if col in dataset_raw.columns:
-                dataset_raw[col] = dataset_raw[col].fillna(0).astype(int)
-    if "pressure" in selected_sources:
-        for col in PRESSURE_COUNT_COLS:
-            if col in dataset_raw.columns:
-                dataset_raw[col] = dataset_raw[col].fillna(0).astype(int)
-        for col in PRESSURE_RATE_COLS:
-            if col in dataset_raw.columns:
-                dataset_raw[col] = dataset_raw[col].fillna(0.0)
-    if "shots" in selected_sources:
-        for col in SHOT_COUNT_COLS:
-            if col in dataset_raw.columns:
-                dataset_raw[col] = dataset_raw[col].fillna(0).astype(int)
-        for col in SHOT_RATE_COLS:
-            if col in dataset_raw.columns:
-                dataset_raw[col] = dataset_raw[col].fillna(0.0)
-
-    dataset_raw = dataset_raw.sort_values(
+    # Use players_quarters_final as the base dataset and merge selected aggregates into it.
+    base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
+    base = base.sort_values(
         ["date", "fixture_id", "player_appearance_id", "checkpoint"]
     ).reset_index(drop=True)
+    base = split_formation_columns(base)
+    base["cumul_in_game_time"] = (
+        base["checkpoint"].map(CHECKPOINT_TO_ABS_MINUTE) - base["minute_in"]
+    ).clip(lower=0)
 
-    filtered_base, removed_rows = apply_row_filters(dataset_raw)
+    if "passes" in selected_sources:
+        received_pass_features = build_received_pass_features()
+        base = base.merge(received_pass_features, on=["player_appearance_id", "checkpoint"], how="left")
+        for col in PASS_FEATURE_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0).astype(int)
+
+    if "pressure" in selected_sources:
+        pressure_features = build_pressure_features()
+        base = base.merge(pressure_features, on=["player_appearance_id", "checkpoint"], how="left")
+        for col in PRESSURE_COUNT_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0).astype(int)
+        for col in PRESSURE_RATE_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0.0)
+
+    if "shots" in selected_sources:
+        shot_features = build_shot_features()
+        base = base.merge(shot_features, on=["player_appearance_id", "checkpoint"], how="left")
+        for col in SHOT_COUNT_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0).astype(int)
+        for col in SHOT_RATE_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0.0)
+
+    filtered_base, removed_rows = apply_row_filters(base)
 
     fixture_split = build_fixture_split(filtered_base)
     dataset = filtered_base.merge(
