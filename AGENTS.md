@@ -2,6 +2,8 @@
 
 TAKE CURRENT REPO STATE AS GRANTED, if something was not done via agent interface acknowledge it, check for errors and flag them if something is done incorrectly !!!
 
+ADD each raw source derrived metrics properly in the merge-sources and parse_merge_sources in the `create_baseline_modeling_dataset` file.
+
 ## Modeling Pipeline Standards
 
 Use these directives as the default standard for all top-level modeling work in this repository unless a later explicit instruction overrides them.
@@ -19,6 +21,7 @@ Use these directives as the default standard for all top-level modeling work in 
 
 - DO NOT USE scored_after in any feature engineering, because it is the target !!!
 - we can only use information until given checkpoint like the last checkpoint or cumulative of already happened checkpoints !
+- Exclude `ET2_15` from checkpoint modeling. It is not a valid predictive checkpoint for `scored_after` because there is no meaningful time left to score after that point.
 - Keep join keys such as `player_appearance_id` during feature construction when needed.
 - Drop join keys before final model fitting unless explicitly required for non-model artifacts.
 - Prefer derived football-meaningful variables over raw identifiers or raw bookkeeping columns.

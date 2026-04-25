@@ -102,6 +102,7 @@ CATBOOST_PARAMS = {
     "subsample": 0.75,
     "leaf_estimation_method": "Newton",
     "leaf_estimation_iterations": 10,
+    "auto_class_weights": "SqrtBalanced",
 }
 
 os.environ.setdefault("TABPFN_MODEL_CACHE_DIR", str((OUTPUT_DIR / "tabpfn_cache").resolve()))
