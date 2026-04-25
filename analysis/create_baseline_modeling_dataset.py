@@ -10,7 +10,6 @@ DATA_DIR = Path("data")
 OUTPUT_DIR = Path("data/baseline_modeling")
 PASS_FILE = DATA_DIR / "player_appearance_pass.csv"
 PRESSURE_FILE = DATA_DIR / "player_appearance_behaviour_under_pressure.csv"
-RUN_FILE = DATA_DIR / "player_appearance_run.csv"
 SHOT_FILE_CANDIDATES = [
     DATA_DIR / "player_appearance_shot_limited.csv",
     DATA_DIR / "player_appearance_shots_limited.csv",
@@ -57,6 +56,8 @@ TARGET_COL = "scored_after"
 
 ROW_FILTERS = [
     ("last15_distance", "<", 1000),
+    ("cumul_distance", "<", 1000),
+    ("last15_mean_max_speed", "<", 10.3),
     ("cumul_mean_max_speed", "<", 10.3),
 ]
 
@@ -82,6 +83,7 @@ ABS_MINUTE_TO_CHECKPOINT = {
     75: "H2_30",
     90: "H2_45",
     105: "ET1_15",
+    120: "ET2_15",
 }
 
 CHECKPOINT_TO_ABS_MINUTE = {v: k for k, v in ABS_MINUTE_TO_CHECKPOINT.items()}
@@ -89,14 +91,6 @@ CHECKPOINT_TO_ABS_MINUTE = {v: k for k, v in ABS_MINUTE_TO_CHECKPOINT.items()}
 PASS_FEATURE_COLS = [
     "last_15_received_succ",
     "last_15_received_unsucc",
-    "cumul_received_succ",
-    "cumul_received_unsucc",
-]
-PASS_LAST15_COLS = [
-    "last_15_received_succ",
-    "last_15_received_unsucc",
-]
-PASS_CUMUL_COLS = [
     "cumul_received_succ",
     "cumul_received_unsucc",
 ]
@@ -120,18 +114,6 @@ PRESSURE_RATE_COLS = [
     "last_15_pressured_success_rate",
     "cumul_pressured_success_rate",
     "last_15_pressure_success_rate",
-    "cumul_pressure_success_rate",
-]
-PRESSURE_CUMUL_COUNT_COLS = [
-    "cumul_times_pressured",
-    "cumul_pressured_succ",
-    "cumul_pressured_unsucc",
-    "cumul_pressures_applied",
-    "cumul_pressures_won",
-    "cumul_pressures_lost",
-]
-PRESSURE_CUMUL_RATE_COLS = [
-    "cumul_pressured_success_rate",
     "cumul_pressure_success_rate",
 ]
 
@@ -219,6 +201,8 @@ RUN_CUMUL_COLS = [
 ]
 CHECKPOINT_ORDER = {checkpoint: idx for idx, checkpoint in enumerate(ABS_MINUTE_TO_CHECKPOINT.values(), start=1)}
 
+CSV_NULL_TOKENS = ["NULL", "null", ""]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -228,7 +212,7 @@ def parse_args() -> argparse.Namespace:
         "--merge-sources",
         type=str,
         default="passes",
-        help="Comma-separated sources to merge: passes,pressure,runs,shots,none (e.g. passes,pressure,runs).",
+        help="Comma-separated sources to merge: passes,pressure,none (e.g. passes,pressure).",
     )
     parser.add_argument(
         "--feature-window",
@@ -245,7 +229,7 @@ def parse_args() -> argparse.Namespace:
 
 def parse_merge_sources(value: str) -> set[str]:
     tokens = {token.strip().lower() for token in str(value).split(",") if token.strip()}
-    valid = {"passes", "pressure", "runs", "shots", "none"}
+    valid = {"passes", "pressure", "shots", "none"}
     invalid = tokens - valid
     if invalid:
         raise ValueError(f"Unsupported merge source(s): {sorted(invalid)}. Valid: {sorted(valid)}")
@@ -287,18 +271,6 @@ def filter_model_columns_by_window(
             continue
         keep.append(col)
     return keep
-
-
-def carry_forward_cumulative_features(df: pd.DataFrame, cumulative_cols: list[str]) -> pd.DataFrame:
-    if not cumulative_cols:
-        return df
-
-    out = df.copy()
-    out["_checkpoint_order"] = out["checkpoint"].map(CHECKPOINT_ORDER)
-    out = out.sort_values(["player_appearance_id", "_checkpoint_order"]).copy()
-    out[cumulative_cols] = out.groupby("player_appearance_id")[cumulative_cols].ffill()
-    out = out.sort_index().drop(columns=["_checkpoint_order"])
-    return out
 
 
 def split_formation_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -448,10 +420,6 @@ def period_minute_to_checkpoint(period: str, minute: float) -> str | None:
     prefix = PERIOD_PREFIX.get(period_key)
     if prefix is None:
         return None
-    if period_key == "extra_time_2":
-        return None
-    if period_key == "extra_time_1":
-        return f"{prefix}_15" if not pd.isna(minute) and float(minute) > 0 else None
     bucket = minute_to_bucket(minute)
     if bucket is None:
         return None
@@ -488,8 +456,12 @@ def resolve_shot_file() -> Path:
     )
 
 
+def read_csv_with_nulls(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path, na_values=CSV_NULL_TOKENS)
+
+
 def build_received_pass_features() -> pd.DataFrame:
-    passes = pd.read_csv(PASS_FILE)
+    passes = read_csv_with_nulls(PASS_FILE)
     passes = passes[passes["stage"].isin(["top", "middle"])].copy()
     passes = passes[passes["addressee_player_appearance_id"].notna()].copy()
     passes["addressee_player_appearance_id"] = passes["addressee_player_appearance_id"].astype(int)
@@ -527,7 +499,7 @@ def build_received_pass_features() -> pd.DataFrame:
 
 
 def build_pressure_features() -> pd.DataFrame:
-    pressure = pd.read_csv(PRESSURE_FILE)
+    pressure = read_csv_with_nulls(PRESSURE_FILE)
     pressure = add_checkpoint_columns(pressure)
     pressure["accurate_bool"] = parse_bool(pressure["accurate"])
 
@@ -614,7 +586,7 @@ def build_pressure_features() -> pd.DataFrame:
 
 def build_shot_features() -> pd.DataFrame:
     shots_path = resolve_shot_file()
-    shots = pd.read_csv(shots_path)
+    shots = read_csv_with_nulls(shots_path)
 
     # Keep only relevant spatial stages.
     shots = shots[shots["stage"].isin(["top", "middle"])].copy()
@@ -1019,15 +991,13 @@ def build_feature_spine_from_selected_sources(selected_sources: set[str]) -> pd.
         feature_frames.append(build_received_pass_features())
     if "pressure" in selected_sources:
         feature_frames.append(build_pressure_features())
-    if "runs" in selected_sources:
-        feature_frames.append(build_run_features())
     if "shots" in selected_sources:
         feature_frames.append(build_shot_features())
 
     if not feature_frames:
         raise ValueError(
             "No feature datasets selected. Use --merge-sources with one or more of: "
-            "passes, pressure, runs, shots."
+            "passes, pressure, shots."
         )
 
     spine = feature_frames[0].copy()
@@ -1037,10 +1007,13 @@ def build_feature_spine_from_selected_sources(selected_sources: set[str]) -> pd.
 
 
 def build_label_context_table() -> pd.DataFrame:
-    base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
+    base = pd.read_csv(
+        DATA_DIR / "players_quarters_final.csv",
+        parse_dates=["date"],
+        na_values=CSV_NULL_TOKENS,
+    )
     label_cols = ["player_appearance_id", "checkpoint", "date", "fixture_id", "player_id", TARGET_COL]
     labels = base[label_cols].copy()
-    labels = labels[labels["checkpoint"] != "ET2_15"].copy()
     labels = labels.drop_duplicates(subset=["player_appearance_id", "checkpoint"])
     labels[TARGET_COL] = pd.to_numeric(labels[TARGET_COL], errors="coerce").fillna(0).astype(int)
     return labels
@@ -1053,7 +1026,11 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Use players_quarters_final as the base dataset and merge selected aggregates into it.
-    base = pd.read_csv(DATA_DIR / "players_quarters_final.csv", parse_dates=["date"])
+    base = pd.read_csv(
+        DATA_DIR / "players_quarters_final.csv",
+        parse_dates=["date"],
+        na_values=CSV_NULL_TOKENS,
+    )
     base = base.sort_values(
         ["date", "fixture_id", "player_appearance_id", "checkpoint"]
     ).reset_index(drop=True)
@@ -1180,8 +1157,6 @@ def main() -> None:
         print("- player_appearance_pass.csv")
     if "pressure" in selected_sources:
         print("- player_appearance_behaviour_under_pressure.csv")
-    if "runs" in selected_sources:
-        print("- player_appearance_run.csv")
     if "shots" in selected_sources:
         print(f"- {resolve_shot_file().name}")
     print(f"- feature-window: {window_mode}")
