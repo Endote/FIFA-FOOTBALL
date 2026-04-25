@@ -13,8 +13,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.frozen import FrozenEstimator
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
@@ -33,6 +35,74 @@ SINGLE_RUN_DIR = OUTPUT_DIR / "_single_runs"
 TARGET_COL = "scored_after"
 SPLIT_COL = "split"
 RANDOM_STATE = 42
+
+# Logistic Regression hyperparameters
+LOGISTIC_REGRESSION_PARAMS = {
+    "class_weight": "balanced",
+    "max_iter": 5000,
+    "solver": "lbfgs",
+    "random_state": RANDOM_STATE,
+}
+
+# Decision Tree hyperparameters
+DECISION_TREE_PARAMS = {
+    "max_depth": 4,
+    "min_samples_leaf": 20,
+    "class_weight": "balanced",
+    "random_state": RANDOM_STATE,
+}
+
+# HistGradientBoosting hyperparameters
+HIST_GRADIENT_BOOSTING_PARAMS = {
+    "learning_rate": 0.05,
+    "max_depth": 4,
+    "max_iter": 300,
+    "min_samples_leaf": 20,
+    "l2_regularization": 5.0,
+    "random_state": RANDOM_STATE,
+}
+
+# TabPFN hyperparameters
+TABPFN_PARAMS = {
+    "random_state": RANDOM_STATE,
+}
+
+# XGBoost hyperparameters
+XGBOOST_PARAMS = {
+    "n_estimators": 2000,
+    "max_depth": 2,
+    "learning_rate": 0.002,
+    "subsample": 0.75,
+    "colsample_bytree": 0.80,
+    "min_child_weight": 8,
+    "reg_lambda": 10.0,
+    "reg_alpha": 0.8,
+    "gamma": 0.1,
+    "max_delta_step": 1,
+    "objective": "binary:logistic",
+    "eval_metric": "aucpr",
+    "random_state": RANDOM_STATE,
+    "n_jobs": 1,
+}
+
+# CatBoost hyperparameters
+CATBOOST_PARAMS = {
+    "loss_function": "Logloss",
+    "eval_metric": "PRAUC",
+    "iterations": 3000,
+    "learning_rate": 0.0033,
+    "depth": 4,
+    "l2_leaf_reg": 350,
+    "random_strength": 1,
+    "early_stopping_rounds": 150,
+    "random_seed": RANDOM_STATE,
+    "verbose": 100,
+    "boosting_type": "Ordered",
+    "bootstrap_type": "Bernoulli",
+    "subsample": 0.75,
+    "leaf_estimation_method": "Newton",
+    "leaf_estimation_iterations": 10,
+}
 
 os.environ.setdefault("TABPFN_MODEL_CACHE_DIR", str((OUTPUT_DIR / "tabpfn_cache").resolve()))
 os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
@@ -232,6 +302,20 @@ def compute_metrics(y_true: pd.Series, y_proba: np.ndarray) -> tuple[float, floa
     return float(average_precision), float(auroc), float(brier)
 
 
+def fit_isotonic_calibrator(
+    fitted_model: Any,
+    x_calibration: pd.DataFrame,
+    y_calibration: pd.Series,
+) -> CalibratedClassifierCV:
+    calibrator = CalibratedClassifierCV(
+        estimator=FrozenEstimator(fitted_model),
+        method="isotonic",
+        cv=None,
+    )
+    calibrator.fit(x_calibration, y_calibration)
+    return calibrator
+
+
 def batched_predict_proba(pipeline: Any, x: pd.DataFrame, batch_size: int = 128) -> np.ndarray:
     outputs = []
     for start in range(0, len(x), batch_size):
@@ -249,7 +333,7 @@ def build_tabpfn_pipeline(
     return Pipeline(
         steps=[
             ("preprocess", build_one_hot_preprocessor(numeric_cols, categorical_cols)),
-            ("model", tabpfn.TabPFNClassifier(device=device, random_state=RANDOM_STATE)),
+            ("model", tabpfn.TabPFNClassifier(device=device, **TABPFN_PARAMS)),
         ]
     )
 
@@ -282,22 +366,9 @@ def fit_xgboost(
     x_train_transformed = preprocessor.fit_transform(x_train)
     x_val_transformed = preprocessor.transform(x_val)
     model = xgboost.XGBClassifier(
-        n_estimators=2000,
-        max_depth=2,
-        learning_rate=0.002,
-        subsample=0.75,
-        colsample_bytree=0.80,
-        min_child_weight=8,
-        reg_lambda=10.0,
-        reg_alpha=0.8,
-        gamma=0.1,
-        max_delta_step=1,
-        objective="binary:logistic",
-        eval_metric="aucpr",
-        random_state=RANDOM_STATE,
+        **XGBOOST_PARAMS,
         tree_method=accelerator["xgboost_tree_method"],
         device=accelerator["xgboost_device"],
-        n_jobs=1,
     )
     model.fit(x_train_transformed, y_train)
     val_proba = np.asarray(model.get_booster().inplace_predict(x_val_transformed, predict_type="value"))
@@ -350,12 +421,7 @@ def fit_logistic_regression(
             ("preprocess", build_scaled_one_hot_preprocessor(numeric_cols, categorical_cols)),
             (
                 "model",
-                LogisticRegression(
-                    class_weight="balanced",
-                    max_iter=5000,
-                    solver="lbfgs",
-                    random_state=RANDOM_STATE,
-                ),
+                LogisticRegression(**LOGISTIC_REGRESSION_PARAMS),
             ),
         ]
     )
@@ -376,12 +442,7 @@ def fit_decision_tree(
             ("preprocess", build_one_hot_preprocessor(numeric_cols, categorical_cols)),
             (
                 "model",
-                DecisionTreeClassifier(
-                    max_depth=4,
-                    min_samples_leaf=20,
-                    class_weight="balanced",
-                    random_state=RANDOM_STATE,
-                ),
+                DecisionTreeClassifier(**DECISION_TREE_PARAMS),
             ),
         ]
     )
@@ -400,14 +461,7 @@ def fit_hist_gradient_boosting(
     preprocessor = build_one_hot_preprocessor(numeric_cols, categorical_cols)
     x_train_transformed = preprocessor.fit_transform(x_train)
     x_val_transformed = preprocessor.transform(x_val)
-    model = HistGradientBoostingClassifier(
-        learning_rate=0.05,
-        max_depth=4,
-        max_iter=300,
-        min_samples_leaf=20,
-        l2_regularization=5.0,
-        random_state=RANDOM_STATE,
-    )
+    model = HistGradientBoostingClassifier(**HIST_GRADIENT_BOOSTING_PARAMS)
     model.fit(x_train_transformed, y_train, sample_weight=balanced_sample_weight(y_train))
     val_proba = model.predict_proba(x_val_transformed)[:, 1]
     return {"preprocessor": preprocessor, "model": model}, val_proba
@@ -423,20 +477,7 @@ def fit_catboost(
     catboost = require_package("catboost", ".venv/bin/pip install catboost")
     train_frame = to_catboost_frame(x_train, categorical_cols)
     val_frame = to_catboost_frame(x_val, categorical_cols)
-    model = catboost.CatBoostClassifier(
-        loss_function="Logloss",
-        eval_metric="PRAUC",
-        iterations=2000,
-        learning_rate=0.0033,
-        depth=2,
-        l2_leaf_reg=350,
-        random_strength=1.0,
-        early_stopping_rounds=150,
-        random_seed=42,
-        verbose=100,
-        cat_features = ["checkpoint", "position", "is_home", "formation"],
-        #min_data_in_leaf=20,
-    )
+    model = catboost.CatBoostClassifier(**CATBOOST_PARAMS)
     model.fit(train_frame, y_train, cat_features=categorical_cols)
     val_proba = model.predict_proba(val_frame)[:, 1]
     return model, val_proba
@@ -451,12 +492,18 @@ def evaluate_model(
     y_test: pd.Series,
     categorical_cols: list[str],
     val_proba: np.ndarray,
+    catboost_calibration: str,
 ) -> ModelResult:
     val_average_precision, val_auroc, val_brier_score = compute_metrics(y_val, val_proba)
 
     if model_name == "catboost":
         test_inputs = to_catboost_frame(x_test, categorical_cols)
         test_proba = fitted_model.predict_proba(test_inputs)[:, 1]
+        if catboost_calibration == "isotonic":
+            val_inputs = to_catboost_frame(x_val, categorical_cols)
+            calibrator = fit_isotonic_calibrator(fitted_model, val_inputs, y_val)
+            save_predictions(model_name, "test_raw", y_test, test_proba)
+            test_proba = calibrator.predict_proba(test_inputs)[:, 1]
     elif model_name in {"xgboost", "hist_gradient_boosting"}:
         test_inputs = fitted_model["preprocessor"].transform(x_test)
         if model_name == "xgboost":
@@ -485,7 +532,7 @@ def evaluate_model(
     )
 
 
-def write_summary(results_df: pd.DataFrame) -> None:
+def write_summary(results_df: pd.DataFrame, catboost_calibration: str) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     results_df.to_csv(OUTPUT_DIR / "model_comparison_results.csv", index=False)
 
@@ -509,6 +556,11 @@ def write_summary(results_df: pd.DataFrame) -> None:
         *md_lines,
         "",
     ]
+    if catboost_calibration == "isotonic":
+        markdown.insert(
+            5,
+            "CatBoost test probabilities are isotonic-calibrated on the validation split; validation metrics remain on raw probabilities.",
+        )
     (OUTPUT_DIR / "model_comparison_results.md").write_text("\n".join(markdown))
 
     metadata = {
@@ -519,7 +571,13 @@ def write_summary(results_df: pd.DataFrame) -> None:
         "selection_metric": "average_precision",
         "secondary_metric": "auroc",
         "calibration_metric": "brier_score",
+        "catboost_calibration": catboost_calibration,
     }
+    if catboost_calibration == "isotonic":
+        metadata["catboost_test_probability_postprocessing"] = (
+            "isotonic calibration fit on validation split with sklearn.frozen.FrozenEstimator"
+        )
+        metadata["catboost_validation_metrics_use_raw_probabilities"] = True
     (OUTPUT_DIR / "run_metadata.json").write_text(json.dumps(metadata, indent=2))
 
 
@@ -558,6 +616,7 @@ def run_single_model(
     numeric_cols: list[str],
     categorical_cols: list[str],
     accelerator: dict[str, Any],
+    catboost_calibration: str,
 ) -> None:
     SINGLE_RUN_DIR.mkdir(parents=True, exist_ok=True)
     result_path = SINGLE_RUN_DIR / f"{model_name}.json"
@@ -573,6 +632,7 @@ def run_single_model(
             y_test,
             categorical_cols,
             val_proba,
+            catboost_calibration,
         )
         payload = {"status": "ok", "result": result.__dict__, "accelerator": accelerator}
         result_path.write_text(json.dumps(payload, indent=2))
@@ -585,7 +645,10 @@ def run_single_model(
         raise
 
 
-def run_models_in_subprocesses(model_names: list[str]) -> tuple[list[ModelResult], list[dict[str, str]]]:
+def run_models_in_subprocesses(
+    model_names: list[str],
+    catboost_calibration: str,
+) -> tuple[list[ModelResult], list[dict[str, str]]]:
     SINGLE_RUN_DIR.mkdir(parents=True, exist_ok=True)
     results: list[ModelResult] = []
     failures: list[dict[str, str]] = []
@@ -595,7 +658,7 @@ def run_models_in_subprocesses(model_names: list[str]) -> tuple[list[ModelResult
         result_path.unlink(missing_ok=True)
 
         completed = subprocess.run(
-            [sys.executable, __file__, "--single-model", model_name],
+            [sys.executable, __file__, "--single-model", model_name, "--catboost-calibration", catboost_calibration],
             cwd=Path.cwd(),
             capture_output=True,
             text=True,
@@ -639,7 +702,7 @@ def run_models_in_subprocesses(model_names: list[str]) -> tuple[list[ModelResult
     return results, failures
 
 
-def main(single_model: str | None = None) -> None:
+def main(single_model: str | None = None, catboost_calibration: str = "none") -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     load_env_file()
 
@@ -667,6 +730,7 @@ def main(single_model: str | None = None) -> None:
             numeric_cols,
             categorical_cols,
             accelerator,
+            catboost_calibration,
         )
         return
 
@@ -678,7 +742,8 @@ def main(single_model: str | None = None) -> None:
             # "tabpfn",
             "xgboost",
             "catboost",
-        ]
+        ],
+        catboost_calibration,
     )
 
     if not results:
@@ -688,7 +753,7 @@ def main(single_model: str | None = None) -> None:
     results_df = pd.DataFrame([result.__dict__ for result in results]).sort_values(
         ["val_average_precision", "val_auroc", "val_brier_score"], ascending=[False, False, True]
     )
-    write_summary(results_df)
+    write_summary(results_df, catboost_calibration)
     write_failures(failures)
     print(
         results_df[
@@ -724,5 +789,10 @@ if __name__ == "__main__":
         ],
         default=None,
     )
+    parser.add_argument(
+        "--catboost-calibration",
+        choices=["none", "isotonic"],
+        default="none",
+    )
     args = parser.parse_args()
-    main(single_model=args.single_model)
+    main(single_model=args.single_model, catboost_calibration=args.catboost_calibration)
