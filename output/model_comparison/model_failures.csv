@@ -1,4 +1,21 @@
 model_name,error
-tabpfn,"usage: model_comparison.py [-h]
-                           [--single-model {logistic_regression,decision_tree,hist_gradient_boosting,xgboost,catboost}]
-model_comparison.py: error: argument --single-model: invalid choice: 'tabpfn' (choose from 'logistic_regression', 'decision_tree', 'hist_gradient_boosting', 'xgboost', 'catboost')"
+catboost,"Traceback (most recent call last):
+  File ""/Users/norbert.jaworski/Documents/small/WEC2026/analysis/model_comparison.py"", line 626, in run_single_model
+    fitted_model, val_proba = trainer()
+                              ^^^^^^^^^
+  File ""/Users/norbert.jaworski/Documents/small/WEC2026/analysis/model_comparison.py"", line 605, in <lambda>
+    ""catboost"": lambda: fit_catboost(x_train, y_train, x_val, categorical_cols, accelerator),
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/Users/norbert.jaworski/Documents/small/WEC2026/analysis/model_comparison.py"", line 482, in fit_catboost
+    model.fit(train_frame, y_train, cat_features=categorical_cols)
+  File ""/Users/norbert.jaworski/Documents/small/WEC2026/.venv/lib/python3.11/site-packages/catboost/core.py"", line 5547, in fit
+    self._fit(X, y, cat_features, text_features, embedding_features, None, graph, sample_weight, None, None, None, None, baseline, use_best_model,
+  File ""/Users/norbert.jaworski/Documents/small/WEC2026/.venv/lib/python3.11/site-packages/catboost/core.py"", line 2701, in _fit
+    train_params = self._prepare_train_params(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/Users/norbert.jaworski/Documents/small/WEC2026/.venv/lib/python3.11/site-packages/catboost/core.py"", line 2627, in _prepare_train_params
+    _check_train_params(params)
+  File ""_catboost.pyx"", line 7029, in _catboost._check_train_params
+  File ""_catboost.pyx"", line 7051, in _catboost._check_train_params
+_catboost.CatBoostError: catboost/private/libs/options/oblivious_tree_options.cpp:125: Rsm should be in (0, 1]
+"

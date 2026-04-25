@@ -34,16 +34,13 @@ DROP_FROM_MODEL = [
     # "last15_peak_speed",
     # "cumul_peak_speed",
     # "last15_hsr",
-    # "cumul_hsr",
-    # "subbed",
+    # "cumul_hsr",    
 ]
 
 TARGET_COL = "scored_after"
 
 ROW_FILTERS = [
     ("last15_distance", "<", 1000),
-    ("cumul_distance", "<", 1000),
-    ("last15_mean_max_speed", "<", 10.3),
     ("cumul_mean_max_speed", "<", 10.3),
 ]
 

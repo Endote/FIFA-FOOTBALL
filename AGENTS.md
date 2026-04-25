@@ -1,5 +1,7 @@
 # AGENT.md
 
+TAKE CURRENT REPO STATE AS GRANTED, if something was not done via agent interface acknowledge it, check for errors and flag them if something is done incorrectly !!!
+
 ## Modeling Pipeline Standards
 
 Use these directives as the default standard for all top-level modeling work in this repository unless a later explicit instruction overrides them.

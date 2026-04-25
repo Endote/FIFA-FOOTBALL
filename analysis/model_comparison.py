@@ -91,12 +91,17 @@ CATBOOST_PARAMS = {
     "eval_metric": "PRAUC",
     "iterations": 3000,
     "learning_rate": 0.0033,
-    "depth": 2,
+    "depth": 4,
     "l2_leaf_reg": 350,
     "random_strength": 1,
     "early_stopping_rounds": 150,
     "random_seed": RANDOM_STATE,
     "verbose": 100,
+    "boosting_type": "Ordered",
+    "bootstrap_type": "Bernoulli",
+    "subsample": 0.75,
+    "leaf_estimation_method": "Newton",
+    "leaf_estimation_iterations": 10,
 }
 
 os.environ.setdefault("TABPFN_MODEL_CACHE_DIR", str((OUTPUT_DIR / "tabpfn_cache").resolve()))
