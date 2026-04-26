@@ -39,3 +39,10 @@ train  1876        18                 473      224        105       0.055970   0
 - `cumul_bottom_sprint_share`
 - `cumul_pressure_success_rate`
 - `cumul_top_run_share`
+- `player_share_team_cumul_shots`
+- `player_share_team_shots_on_target`
+- `cumul_pass_middle_accuracy_rate`
+- `cumul_pass_top_accuracy_rate`
+- `cumul_pressure_turnover_rate`
+- `cumul_pressure_forward_rate`
+- `player_z_team_top_distance_share`

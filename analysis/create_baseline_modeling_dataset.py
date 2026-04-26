@@ -25,7 +25,8 @@ KEEP_BASE_MODEL = [
     "position",
     "checkpoint",
     "formation",
-    "is_home",
+    # "is_home",
+
     "cumul_received_unsucc",
     "cumul_in_game_time",
 
@@ -38,10 +39,28 @@ KEEP_BASE_MODEL = [
     "cumul_unique_run_possessions",
     "cumul_sprints",
     "cumul_bottom_sprint_share",
-    "cumul_middle_hsr_count",
     "cumul_pressure_success_rate",
     "cumul_top_run_share",
 
+    "player_share_team_cumul_shots",
+    "player_share_team_shots_on_target",
+    "cumul_pass_middle_accuracy_rate",
+    "cumul_pass_top_accuracy_rate",
+    "cumul_pressure_turnover_rate",
+    "cumul_pressure_forward_rate",
+    "player_z_team_top_distance_share",
+
+    ### AFTER BA 0.719449, AUC 0.759711
+
+    # "pressure_ball_carry",
+    # "cumul_middle_hsr_count",
+
+    # # "cumul_pass_middle_count",
+    # "team_minus_opponent_shot_load",
+    # "mean_abs_pass_angle_under_pressure",
+
+
+]
     # "top_distance_share",
     # "avg_top_sprint_distance",
 
@@ -106,7 +125,7 @@ KEEP_BASE_MODEL = [
     # "middle_distance_share",
     # "cumul_bottom_sprint_count",
     # "cumul_top_sprint_share",
-]
+# ]
 
 
 
@@ -131,7 +150,7 @@ STRUCTURAL_DROP_ALWAYS = [
     "cumul_top_sprint_count",
     "cumul_top_hsr_count",
     "cumul_middle_sprint_count",
-    "cumul_middle_hsr_count",
+    # "cumul_middle_hsr_count",
 
     "cumul_pressures_applied",
 
