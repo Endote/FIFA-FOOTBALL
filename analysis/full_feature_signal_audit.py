@@ -18,6 +18,8 @@ from analysis.create_baseline_modeling_dataset import (
     CSV_NULL_TOKENS,
     DATA_DIR,
     PASS_FEATURE_COLS,
+    PASS_COUNT_COLS,
+    PASS_RATE_COLS,
     PRESSURE_COUNT_COLS,
     PRESSURE_RATE_COLS,
     RUN_COUNT_COLS,
@@ -30,6 +32,7 @@ from analysis.create_baseline_modeling_dataset import (
     CHECKPOINT_ORDER,
     CHECKPOINT_TO_ABS_MINUTE,
     apply_row_filters,
+    add_team_level_context_features,
     build_pressure_features,
     build_received_pass_features,
     build_run_features,
@@ -41,6 +44,8 @@ from analysis.create_baseline_modeling_dataset import (
 
 
 OUTPUT_DIR = Path("output/full_feature_signal_audit")
+MODEL_DATASET_PATH = Path("data/baseline_modeling/baseline_all_model_ready.csv")
+FEATURE_MANIFEST_PATH = Path("data/baseline_modeling/baseline_feature_manifest.csv")
 KNOWN_CATEGORICAL_COLS = {"checkpoint", "position", "formation"}
 BASE_EXCLUDE_COLS = {
     TARGET_COL,
@@ -118,8 +123,8 @@ def assemble_full_feature_dataset() -> pd.DataFrame:
     base = merge_feature_frame(
         base=base,
         features=received_pass_features,
-        count_cols=PASS_FEATURE_COLS,
-        rate_cols=[],
+        count_cols=PASS_COUNT_COLS,
+        rate_cols=PASS_RATE_COLS,
     )
 
     pressure_features = build_pressure_features()
@@ -146,6 +151,7 @@ def assemble_full_feature_dataset() -> pd.DataFrame:
         rate_cols=SHOT_RATE_COLS,
     )
 
+    base = add_team_level_context_features(base)
     filtered_base, removed_rows = apply_row_filters(base)
     return filtered_base, removed_rows
 
@@ -344,6 +350,32 @@ def main() -> None:
     combined.to_csv(output_dir / "catboost_shap_with_target_association.csv", index=False)
     shap_values.to_csv(output_dir / "catboost_shap_values_by_feature.csv", index=False)
     removed_rows.to_csv(output_dir / "removed_rows_quality_filters.csv", index=False)
+
+    audit_predictor_cols = sorted(predictor_cols)
+    pd.DataFrame({"feature": audit_predictor_cols}).to_csv(output_dir / "audit_predictor_columns.csv", index=False)
+
+    comparison_payload: dict[str, object] = {}
+    if MODEL_DATASET_PATH.exists():
+        exported_columns = pd.read_csv(MODEL_DATASET_PATH, nrows=0).columns.tolist()
+        exported_predictors = sorted([col for col in exported_columns if col != TARGET_COL])
+        comparison_payload["exported_predictor_count"] = len(exported_predictors)
+        comparison_payload["audit_only_predictors"] = sorted(set(audit_predictor_cols) - set(exported_predictors))
+        comparison_payload["exported_only_predictors"] = sorted(set(exported_predictors) - set(audit_predictor_cols))
+        pd.DataFrame({"feature": exported_predictors}).to_csv(
+            output_dir / "exported_model_predictor_columns.csv", index=False
+        )
+
+    if FEATURE_MANIFEST_PATH.exists():
+        manifest = pd.read_csv(FEATURE_MANIFEST_PATH)
+        if {"column", "role"}.issubset(manifest.columns):
+            manifest_predictors = sorted(manifest.loc[manifest["role"] == "predictor", "column"].astype(str).tolist())
+            comparison_payload["manifest_predictor_count"] = len(manifest_predictors)
+            comparison_payload["audit_only_vs_manifest"] = sorted(set(audit_predictor_cols) - set(manifest_predictors))
+            comparison_payload["manifest_only_vs_audit"] = sorted(set(manifest_predictors) - set(audit_predictor_cols))
+            pd.DataFrame({"feature": manifest_predictors}).to_csv(
+                output_dir / "manifest_predictor_columns.csv", index=False
+            )
+
     (output_dir / "summary.md").write_text(
         build_summary(feature_table, removed_rows, target_associations, shap_importance)
     )
@@ -355,14 +387,15 @@ def main() -> None:
         "predictor_count": int(len(predictor_cols)),
         "categorical_predictors": categorical_cols,
         "numeric_predictors": numeric_cols,
+        **comparison_payload,
     }
     (output_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2))
 
     print(json.dumps(metadata, indent=2))
     print("\nTop 10 SHAP features:")
-    print(shap_importance.head(10).to_string(index=False))
+    print(shap_importance.head(50).to_string(index=False))
     print("\nTop 10 target associations:")
-    print(target_associations.head(10).to_string(index=False))
+    print(target_associations.head(50).to_string(index=False))
 
 
 if __name__ == "__main__":

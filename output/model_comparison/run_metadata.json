@@ -3,8 +3,13 @@
   "val_path": "data/baseline_modeling/baseline_val_model_ready.csv",
   "test_path": "data/baseline_modeling/baseline_test_model_ready.csv",
   "target_col": "scored_after",
-  "selection_metric": "average_precision",
-  "secondary_metric": "auroc",
-  "calibration_metric": "brier_score",
+  "selection_metric": "pr_auc",
+  "cv_selection_metric": "cv_pr_auc_mean",
+  "cv_tie_break_metric": "cv_balanced_accuracy_mean",
+  "secondary_metrics": [
+    "auroc",
+    "brier_score"
+  ],
+  "balanced_accuracy_threshold_policy": "selected on training data only within each split/fold",
   "catboost_calibration": "none"
 }

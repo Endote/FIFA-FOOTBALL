@@ -1,0 +1,17 @@
+feature
+checkpoint
+cumul_bottom_sprint_share
+cumul_in_game_time
+cumul_pressure_success_rate
+cumul_pressured_success_rate
+cumul_received_unsucc
+cumul_sprints
+cumul_top_hsr_share
+cumul_top_run_share
+cumul_unique_run_possessions
+distance_per_possession
+distance_per_run
+formation
+is_home
+position
+top_distance_share

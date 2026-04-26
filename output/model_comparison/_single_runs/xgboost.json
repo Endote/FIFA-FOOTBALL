@@ -2,12 +2,22 @@
   "status": "ok",
   "result": {
     "model_name": "xgboost",
-    "val_average_precision": 0.14903731675136578,
-    "val_auroc": 0.7556818181818181,
-    "val_brier_score": 0.06023812294006348,
-    "test_average_precision": 0.12563295339918049,
-    "test_auroc": 0.8071583020371003,
-    "test_brier_score": 0.04191500321030617
+    "cv_pr_auc_mean": 0.11873794165368816,
+    "cv_pr_auc_std": 0.034073610538548675,
+    "cv_balanced_accuracy_mean": 0.6141996659258305,
+    "cv_balanced_accuracy_std": 0.04407434696252233,
+    "cv_auroc_mean": 0.6832428011483636,
+    "cv_auroc_std": 0.025989723787912776,
+    "cv_brier_score_mean": 0.05342920124530792,
+    "cv_brier_score_std": 0.006815034243869036,
+    "val_average_precision": 0.09729055933084785,
+    "val_balanced_accuracy": 0.6612404811830923,
+    "val_auroc": 0.6788985763160799,
+    "val_brier_score": 0.05592149868607521,
+    "test_average_precision": 0.13522884557693945,
+    "test_balanced_accuracy": 0.6566063260967596,
+    "test_auroc": 0.6762384848289634,
+    "test_brier_score": 0.05264804884791374
   },
   "accelerator": {
     "preferred": "mps",
@@ -16,5 +26,91 @@
     "xgboost_tree_method": "hist",
     "catboost_task_type": "CPU",
     "catboost_devices": null
-  }
+  },
+  "cv_fold_results": [
+    {
+      "model_name": "xgboost",
+      "repeat": 1,
+      "fold": 1,
+      "seed": 7,
+      "average_precision": 0.17727389372043525,
+      "balanced_accuracy": 0.6740853658536585,
+      "auroc": 0.7348492547425475,
+      "brier_score": 0.053694091737270355,
+      "selected_threshold": 0.055640809237957,
+      "rows": 1044,
+      "fixtures": 10,
+      "positives": 60
+    },
+    {
+      "model_name": "xgboost",
+      "repeat": 1,
+      "fold": 2,
+      "seed": 7,
+      "average_precision": 0.1461841576961486,
+      "balanced_accuracy": 0.598473350593697,
+      "auroc": 0.6700443412790524,
+      "brier_score": 0.061652734875679016,
+      "selected_threshold": 0.05374053120613098,
+      "rows": 1043,
+      "fixtures": 10,
+      "positives": 69
+    },
+    {
+      "model_name": "xgboost",
+      "repeat": 1,
+      "fold": 3,
+      "seed": 7,
+      "average_precision": 0.08699298383022235,
+      "balanced_accuracy": 0.6579040350505265,
+      "auroc": 0.6885290792170164,
+      "brier_score": 0.04487520828843117,
+      "selected_threshold": 0.06436687707901001,
+      "rows": 1121,
+      "fixtures": 11,
+      "positives": 53
+    },
+    {
+      "model_name": "xgboost",
+      "repeat": 2,
+      "fold": 1,
+      "seed": 8,
+      "average_precision": 0.09309406908853382,
+      "balanced_accuracy": 0.5447154471544715,
+      "auroc": 0.6876778455284553,
+      "brier_score": 0.05382034182548523,
+      "selected_threshold": 0.060827821493148804,
+      "rows": 1044,
+      "fixtures": 10,
+      "positives": 60
+    },
+    {
+      "model_name": "xgboost",
+      "repeat": 2,
+      "fold": 2,
+      "seed": 8,
+      "average_precision": 0.12331152879368444,
+      "balanced_accuracy": 0.6263949647352915,
+      "auroc": 0.6613620807665982,
+      "brier_score": 0.06156083196401596,
+      "selected_threshold": 0.05177389085292816,
+      "rows": 1043,
+      "fixtures": 10,
+      "positives": 69
+    },
+    {
+      "model_name": "xgboost",
+      "repeat": 2,
+      "fold": 3,
+      "seed": 8,
+      "average_precision": 0.0855710167931044,
+      "balanced_accuracy": 0.5836248321673381,
+      "auroc": 0.6569942053565119,
+      "brier_score": 0.044971998780965805,
+      "selected_threshold": 0.06412826478481293,
+      "rows": 1121,
+      "fixtures": 11,
+      "positives": 53
+    }
+  ]
 }

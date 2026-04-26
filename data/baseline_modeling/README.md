@@ -9,27 +9,33 @@
 
 ## Requested 60 / 20 / 20 split
 
-- Exact 60 / 20 / 20 is not always achievable with whole-fixture chronological splits.
-- The closest deterministic split on this dataset is:
+- Split method: `seeded_grouped_fixture_split`
+- Split seed: `7`
+- Exact 60 / 20 / 20 is not always achievable with whole-fixture grouped splits.
+- The closest seeded grouped split on this dataset is:
 
 split  rows  fixtures  player_appearances  players  positives  positive_rate  row_share
- test   635         5                 147       95         29       0.045669   0.197943
-train  1917        20                 499      266        109       0.056860   0.597569
-  val   656         6                 162      143         44       0.067073   0.204489
+ test   765         7                 188      123         43       0.056209   0.238466
+train  1876        18                 473      224        105       0.055970   0.584788
+  val   567         6                 147      134         34       0.059965   0.176746
+
+## Grouped CV
+
+- CV method: `StratifiedGroupKFold`
+- Group variable: `fixture_id`
+- Folds: `3`
+- Repeats: `2`
+- Base seed: `7`
 
 ## Added baseline extension features
 
 - `cumul_received_unsucc`
+- `cumul_pressured_success_rate`
+- `cumul_top_hsr_share`
+- `distance_per_run`
+- `distance_per_possession`
 - `top_distance_share`
-- `avg_top_sprint_distance`
-- `possessions_with_2plus_runs`
-- `cumul_shots_total`
-- `cumul_shots_blocked`
-- `cumul_shots_under_pressure`
-- `player_share_team_cumul_shots`
-- `player_share_team_shots_on_target`
-- `player_share_team_top_distance`
-- `player_rank_team_cumul_shots`
-- `player_rank_team_top_distance_share`
-- `player_z_team_top_distance_share`
-- `player_z_team_shots_total`
+- `cumul_unique_run_possessions`
+- `cumul_bottom_sprint_share`
+- `cumul_pressure_success_rate`
+- `cumul_top_run_share`

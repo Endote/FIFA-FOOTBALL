@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+from sklearn.model_selection import StratifiedGroupKFold, train_test_split
 
 
 DATA_DIR = Path("data")
@@ -24,45 +25,87 @@ KEEP_BASE_MODEL = [
     "position",
     "checkpoint",
     "formation",
-
+    "is_home",
     "cumul_received_unsucc",
-
     "cumul_in_game_time",
 
+
+    "cumul_pressured_success_rate",
+    "cumul_top_hsr_share",
+    "distance_per_run",
+    "distance_per_possession",
     "top_distance_share",
-    "avg_top_sprint_distance",
+    "cumul_unique_run_possessions",
+    "cumul_sprints",
+    "cumul_bottom_sprint_share",
+    "cumul_middle_hsr_count",
+    "cumul_pressure_success_rate",
+    "cumul_top_run_share",
 
-    "possessions_with_2plus_runs",
+    # "top_distance_share",
+    # "avg_top_sprint_distance",
+
+    # "possessions_with_2plus_runs",
     
-    "cumul_shots_on_target",
-    "cumul_shots_total",
+    # "cumul_shots_on_target",
+    # "cumul_shots_total",
 
-    "cumul_shots_blocked",
-    "cumul_shots_under_pressure",
-    # "cumul_pressure_events",
-    # "last15_pressure_events",
-    # "cumul_pressure_turnover_rate",
-    # "last15_pressure_turnover_rate",
-    # "cumul_pressure_forward_rate",
-    # "last15_pressure_forward_rate",
-    # "pressure_forward_minus_backward",
+    # "cumul_shots_blocked",
+    # "cumul_shots_under_pressure",
+    # # "cumul_pressure_events",
+    # # "pressure_forward_minus_backward",
     # "pressure_escape_score",
-    # "mean_abs_pass_angle_under_pressure",
-    # "top_third_pressure_count",
-    # "top_third_pressure_turnover_rate",
 
-    "player_share_team_cumul_shots",
-    "player_share_team_shots_on_target",
-    "player_share_team_top_distance",
-    "player_rank_team_cumul_shots",
-    "player_rank_team_top_distance_share",
-    "player_z_team_top_distance_share",
-    "player_z_team_shots_total",
-    # "team_total_cumul_shots",
-    # "team_total_top_runs",
+
+    # "player_share_team_cumul_shots",
+    # "player_share_team_shots_on_target",
+    # "player_share_team_top_distance",
+    # # "player_rank_team_cumul_shots",
+    # "player_rank_team_top_distance_share",
+    # "player_z_team_top_distance_share",
+    # "player_z_team_shots_total",
+
     # "opponent_total_cumul_shots",
     # "team_minus_opponent_shot_load",
+    # "cumul_pass_middle_count",
+    # "cumul_pressure_turnover_rate",
+    # "mean_abs_pass_angle_under_pressure",
+    # "cumul_pressure_forward_rate",
+    # "cumul_peak_speed",
 
+    # ### After cross
+    # "cumul_top_run_share",
+    # "cumul_top_hsr_share",
+
+    # "cumul_pass_middle_accuracy_rate",
+
+
+    # "cumul_pressured_success_rate",
+    # "cumul_pass_top_accuracy_rate",
+
+    # ### After audit
+    # "distance_per_run",
+    # "cumul_mean_max_speed",
+    # "cumul_pressures_won",
+    # "share_of_possessions_with_top_run",
+    # "cumul_bottom_sprint_share",
+    # "distance_per_possession",
+    # # "cumul_unique_run_possessions",
+    # "cumul_pressure_success_rate",
+    # "top_hsr_distance",
+    # "top_runs_per_possession",
+    # "top_sprint_distance",
+    # "possessions_with_sprint_and_hsr",
+    
+    # ##
+    # "cumul_pressures_lost",
+    # "team_total_cumul_shots",
+    # "team_total_top_runs",
+    # "cumul_sprints",
+    # "formation_attackers",
+    # "middle_distance_share",
+    # "cumul_bottom_sprint_count",
+    # "cumul_top_sprint_share",
 ]
 
 
@@ -76,18 +119,14 @@ STRUCTURAL_DROP_ALWAYS = [
     "id",
     "checkpoint_period",
     "checkpoint_min",
-    "is_home",
     "minute_in",
     "minute_out",
-    "cumul_mean_max_speed",
-    "cumul_peak_speed",
 
     "last15_top_sprint_count",
     "last15_middle_sprint_count",
     "last15_middle_hsr_count",
     "last15_bottom_sprint_count",
     "last15_bottom_hsr_count",
-    "cumul_bottom_sprint_count",
     "cumul_bottom_hsr_count",
     "cumul_top_sprint_count",
     "cumul_top_hsr_count",
@@ -95,49 +134,33 @@ STRUCTURAL_DROP_ALWAYS = [
     "cumul_middle_hsr_count",
 
     "cumul_pressures_applied",
-    "cumul_pressures_won",
-    "cumul_pressures_lost",
 
     "last_15_shots_special",
     "last_15_shots_set_play",
     "cumul_shots_special",
     "cumul_shots_set_play",
 
-    # "cumul_top_run_share",
-    "cumul_middle_run_share",
     "cumul_bottom_run_share",
-    "cumul_top_sprint_share",
-    # "cumul_top_hsr_share",
 
     "top_run_repeat_possession_rate",
-    "cumul_unique_run_possessions",
     "last15_unique_run_possessions",
     "runs_per_possession",
     "sprints_per_possession",
 
-    "cumul_pressured_success_rate",
 
     # "last15_top_run_share",
     "last15_top_sprint_share",
-    # "share_of_possessions_with_top_run",
     "share_of_possessions_with_sprint",
-    "top_runs_per_possession",
     "possessions_with_2plus_top_runs",
-    "top_sprint_distance",
-    "top_hsr_distance",
-    "distance_per_run",
-    "distance_per_possession",
     "sprint_distance_share",
     "last15_top_hsr_count",
 
-    "possessions_with_sprint_and_hsr",
-    "cumul_pressure_success_rate",
     "last_15_pressured_success_rate",
     "last_15_pressure_success_rate",
 
-    "cumul_top_hsr_share",
-    "cumul_top_run_share",
     "last15_top_run_share",
+
+
 
 ]
 
@@ -370,6 +393,24 @@ def parse_args() -> argparse.Namespace:
             "Which time-windowed features to keep in model outputs: "
             "'all' (default), 'cumul' only, or 'last15' only."
         ),
+    )
+    parser.add_argument(
+        "--split-seed",
+        type=int,
+        default=42,
+        help="Random seed for fixture-grouped train/val/test splitting and CV generation.",
+    )
+    parser.add_argument(
+        "--cv-folds",
+        type=int,
+        default=5,
+        help="Number of grouped CV folds to export for stability checks.",
+    )
+    parser.add_argument(
+        "--cv-repeats",
+        type=int,
+        default=3,
+        help="Number of repeated grouped CV runs to export with incremented seeds.",
     )
     return parser.parse_args()
 
@@ -648,43 +689,150 @@ def split_formation_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_fixture_split(base: pd.DataFrame) -> pd.DataFrame:
+    raise NotImplementedError("Use build_fixture_split with split_seed.")
+
+
+def build_fixture_table(base: pd.DataFrame) -> pd.DataFrame:
     fixtures = (
-        base.groupby(["date", "fixture_id"])
-        .agg(rows=("fixture_id", "size"), positives=(TARGET_COL, "sum"))
+        base.groupby("fixture_id")
+        .agg(
+            date=("date", "min"),
+            rows=("fixture_id", "size"),
+            positives=(TARGET_COL, "sum"),
+        )
         .reset_index()
-        .sort_values(["date", "fixture_id"])
+        .sort_values(["fixture_id"])
         .reset_index(drop=True)
     )
+    return fixtures
 
-    total_rows = int(fixtures["rows"].sum())
-    train_target_rows = total_rows * TRAIN_SHARE_TARGET
-    val_target_rows = total_rows * VAL_SHARE_TARGET
 
-    train_end_idx = None
-    best_train_diff = None
-    for idx in range(len(fixtures)):
-        train_rows = int(fixtures.loc[:idx, "rows"].sum())
-        diff = abs(train_rows - train_target_rows)
-        if best_train_diff is None or diff < best_train_diff:
-            best_train_diff = diff
-            train_end_idx = idx
+def build_fixture_strata(fixtures: pd.DataFrame) -> pd.Series | None:
+    positives = fixtures["positives"]
+    unique_positive_counts = positives.nunique()
 
-    val_end_idx = None
-    best_val_diff = None
-    for idx in range(train_end_idx + 1, len(fixtures) - 1):
-        val_rows = int(fixtures.loc[train_end_idx + 1 : idx, "rows"].sum())
-        diff = abs(val_rows - val_target_rows)
-        if best_val_diff is None or diff < best_val_diff:
-            best_val_diff = diff
-            val_end_idx = idx
+    for q in [4, 3, 2]:
+        if unique_positive_counts < q:
+            continue
+        try:
+            strata = pd.qcut(positives, q=q, duplicates="drop").astype(str)
+        except ValueError:
+            continue
+        if strata.nunique() >= 2 and strata.value_counts().min() >= 2:
+            return strata
 
-    fixtures["split"] = "test"
-    fixtures.loc[:train_end_idx, "split"] = "train"
-    fixtures.loc[train_end_idx + 1 : val_end_idx, "split"] = "val"
+    binary = (positives > 0).astype(str)
+    if binary.nunique() >= 2 and binary.value_counts().min() >= 2:
+        return binary
+    return None
+
+
+def build_fixture_split(base: pd.DataFrame, split_seed: int) -> pd.DataFrame:
+    fixtures = build_fixture_table(base)
+    strata = build_fixture_strata(fixtures)
+
+    fixture_ids = fixtures["fixture_id"]
+    train_val_ids, test_ids = train_test_split(
+        fixture_ids,
+        test_size=TEST_SHARE_TARGET,
+        random_state=split_seed,
+        stratify=strata if strata is not None else None,
+    )
+
+    train_val = fixtures[fixtures["fixture_id"].isin(train_val_ids)].copy()
+    train_val_strata = build_fixture_strata(train_val)
+    train_ids, val_ids = train_test_split(
+        train_val["fixture_id"],
+        test_size=VAL_SHARE_TARGET / (TRAIN_SHARE_TARGET + VAL_SHARE_TARGET),
+        random_state=split_seed,
+        stratify=train_val_strata if train_val_strata is not None else None,
+    )
+
+    fixtures["split"] = "unassigned"
+    fixtures.loc[fixtures["fixture_id"].isin(train_ids), "split"] = "train"
+    fixtures.loc[fixtures["fixture_id"].isin(val_ids), "split"] = "val"
+    fixtures.loc[fixtures["fixture_id"].isin(test_ids), "split"] = "test"
+    fixtures = fixtures.sort_values(["split", "fixture_id"]).reset_index(drop=True)
     fixtures["fixture_order"] = range(1, len(fixtures) + 1)
     fixtures["cum_rows"] = fixtures["rows"].cumsum()
-    fixtures["cum_share"] = fixtures["cum_rows"] / total_rows
+    fixtures["cum_share"] = fixtures["cum_rows"] / fixtures["rows"].sum()
+    fixtures["split_seed"] = split_seed
+    fixtures["split_method"] = "seeded_grouped_fixture_split"
     return fixtures
+
+
+def build_grouped_cv_assignments(
+    base: pd.DataFrame,
+    cv_folds: int,
+    cv_repeats: int,
+    split_seed: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if cv_folds < 2 or cv_repeats < 1:
+        return pd.DataFrame(), pd.DataFrame()
+
+    fixture_count = int(base["fixture_id"].nunique())
+    if cv_folds > fixture_count:
+        raise ValueError(
+            f"cv_folds={cv_folds} exceeds the number of fixtures available after filtering ({fixture_count})."
+        )
+
+    assignment_records: list[dict[str, int | str]] = []
+    summary_records: list[dict[str, int | float | str]] = []
+
+    y = base[TARGET_COL].astype(int)
+    groups = base["fixture_id"]
+
+    for repeat_idx in range(cv_repeats):
+        repeat_seed = split_seed + repeat_idx
+        splitter = StratifiedGroupKFold(
+            n_splits=cv_folds,
+            shuffle=True,
+            random_state=repeat_seed,
+        )
+
+        for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(base, y, groups), start=1):
+            train_fixture_ids = sorted(base.iloc[train_idx]["fixture_id"].unique().tolist())
+            val_fixture_ids = sorted(base.iloc[val_idx]["fixture_id"].unique().tolist())
+
+            for fixture_id in train_fixture_ids:
+                assignment_records.append(
+                    {
+                        "repeat": repeat_idx + 1,
+                        "fold": fold_idx,
+                        "fixture_id": int(fixture_id),
+                        "cv_split": "train",
+                        "seed": repeat_seed,
+                    }
+                )
+            for fixture_id in val_fixture_ids:
+                assignment_records.append(
+                    {
+                        "repeat": repeat_idx + 1,
+                        "fold": fold_idx,
+                        "fixture_id": int(fixture_id),
+                        "cv_split": "val",
+                        "seed": repeat_seed,
+                    }
+                )
+
+            for split_name, idx in [("train", train_idx), ("val", val_idx)]:
+                fold_df = base.iloc[idx]
+                summary_records.append(
+                    {
+                        "repeat": repeat_idx + 1,
+                        "fold": fold_idx,
+                        "cv_split": split_name,
+                        "seed": repeat_seed,
+                        "rows": int(len(fold_df)),
+                        "fixtures": int(fold_df["fixture_id"].nunique()),
+                        "player_appearances": int(fold_df["player_appearance_id"].nunique()),
+                        "players": int(fold_df["player_id"].nunique()),
+                        "positives": int(fold_df[TARGET_COL].sum()),
+                        "positive_rate": float(fold_df[TARGET_COL].mean()),
+                    }
+                )
+
+    return pd.DataFrame(assignment_records), pd.DataFrame(summary_records)
 
 
 def summarize_split(df: pd.DataFrame) -> pd.DataFrame:
@@ -1564,6 +1712,9 @@ def main() -> None:
     args = parse_args()
     selected_sources = parse_merge_sources(args.merge_sources)
     window_mode = args.feature_window
+    split_seed = args.split_seed
+    cv_folds = args.cv_folds
+    cv_repeats = args.cv_repeats
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Use players_quarters_final as the base dataset and merge selected aggregates into it.
@@ -1651,10 +1802,16 @@ def main() -> None:
 
     filtered_base, removed_rows = apply_row_filters(base)
 
-    fixture_split = build_fixture_split(filtered_base)
+    fixture_split = build_fixture_split(filtered_base, split_seed=split_seed)
+    cv_assignments, cv_summary = build_grouped_cv_assignments(
+        filtered_base,
+        cv_folds=cv_folds,
+        cv_repeats=cv_repeats,
+        split_seed=split_seed,
+    )
     dataset = filtered_base.merge(
-        fixture_split[["date", "fixture_id", "split", "fixture_order"]],
-        on=["date", "fixture_id"],
+        fixture_split[["fixture_id", "split", "fixture_order"]],
+        on=["fixture_id"],
         how="left",
     )
 
@@ -1666,13 +1823,20 @@ def main() -> None:
     included_extension_features = get_included_extension_features(model_columns, selected_sources)
     model_dataset = dataset[model_columns + ["split"]].copy()
     model_dataset_export = model_dataset.drop(columns=["split"]).copy()
+    cv_ready_columns = ["fixture_id"] + [col for col in model_columns if col != "fixture_id"]
+    model_dataset_cv_ready = dataset[cv_ready_columns].copy()
 
     split_summary = summarize_split(dataset)
 
     model_dataset_export.to_csv(OUTPUT_DIR / "baseline_all_model_ready.csv", index=False)
+    model_dataset_cv_ready.to_csv(OUTPUT_DIR / "baseline_all_model_cv_ready.csv", index=False)
     fixture_split.to_csv(OUTPUT_DIR / "baseline_fixture_split.csv", index=False)
     split_summary.to_csv(OUTPUT_DIR / "baseline_split_summary.csv", index=False)
     removed_rows.to_csv(OUTPUT_DIR / "baseline_removed_rows_quality_filters.csv", index=False)
+    if not cv_assignments.empty:
+        cv_assignments.to_csv(OUTPUT_DIR / "baseline_cv_fixture_assignments.csv", index=False)
+    if not cv_summary.empty:
+        cv_summary.to_csv(OUTPUT_DIR / "baseline_cv_split_summary.csv", index=False)
 
     for split_name in ["train", "val", "test"]:
         split_model = model_dataset[model_dataset["split"] == split_name].drop(columns=["split"]).copy()
@@ -1706,10 +1870,20 @@ def main() -> None:
 
 ## Requested 60 / 20 / 20 split
 
-- Exact 60 / 20 / 20 is not always achievable with whole-fixture chronological splits.
-- The closest deterministic split on this dataset is:
+- Split method: `seeded_grouped_fixture_split`
+- Split seed: `{split_seed}`
+- Exact 60 / 20 / 20 is not always achievable with whole-fixture grouped splits.
+- The closest seeded grouped split on this dataset is:
 
 {split_summary.to_string(index=False)}
+
+## Grouped CV
+
+- CV method: `StratifiedGroupKFold`
+- Group variable: `fixture_id`
+- Folds: `{cv_folds}`
+- Repeats: `{cv_repeats}`
+- Base seed: `{split_seed}`
 
 ## Added baseline extension features
 
@@ -1728,10 +1902,20 @@ def main() -> None:
     if "shots" in selected_sources:
         print(f"- {resolve_shot_file().name}")
     print(f"- feature-window: {window_mode}")
+    print(f"- split-seed: {split_seed}")
+    print(f"- cv-folds: {cv_folds}")
+    print(f"- cv-repeats: {cv_repeats}")
     print(f"- output: {OUTPUT_DIR}")
     print()
     print("## Requested 60 / 20 / 20 split")
     print(split_summary.to_string(index=False))
+    print()
+    print("## Grouped CV")
+    print("- method: StratifiedGroupKFold")
+    print("- group: fixture_id")
+    print(f"- folds: {cv_folds}")
+    print(f"- repeats: {cv_repeats}")
+    print(f"- base seed: {split_seed}")
     print()
     print("## Added baseline extension features")
     for col in included_extension_features:
