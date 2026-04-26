@@ -39,6 +39,17 @@ KEEP_BASE_MODEL = [
 
     "cumul_shots_blocked",
     "cumul_shots_under_pressure",
+    # "cumul_pressure_events",
+    # "last15_pressure_events",
+    # "cumul_pressure_turnover_rate",
+    # "last15_pressure_turnover_rate",
+    # "cumul_pressure_forward_rate",
+    # "last15_pressure_forward_rate",
+    # "pressure_forward_minus_backward",
+    # "pressure_escape_score",
+    # "mean_abs_pass_angle_under_pressure",
+    # "top_third_pressure_count",
+    # "top_third_pressure_turnover_rate",
 
     "player_share_team_cumul_shots",
     "player_share_team_shots_on_target",
@@ -206,6 +217,31 @@ PRESSURE_RATE_COLS = [
     "cumul_pressured_success_rate",
     "last_15_pressure_success_rate",
     "cumul_pressure_success_rate",
+    "cumul_pressure_turnover_rate",
+    "last15_pressure_turnover_rate",
+    "cumul_pressure_forward_rate",
+    "last15_pressure_forward_rate",
+    "top_third_pressure_turnover_rate",
+]
+PRESSURE_CONTEXT_COUNT_COLS = [
+    "cumul_pressure_events",
+    "last15_pressure_events",
+    "pressure_forward_minus_backward",
+    "pressure_escape_score",
+    "top_third_pressure_count",
+]
+PRESSURE_CONTEXT_VALUE_COLS = [
+    "mean_abs_pass_angle_under_pressure",
+]
+PRESSURE_CARRY_FORWARD_COLS = [
+    "cumul_pressure_events",
+    "cumul_pressure_turnover_rate",
+    "cumul_pressure_forward_rate",
+    "pressure_forward_minus_backward",
+    "pressure_escape_score",
+    "mean_abs_pass_angle_under_pressure",
+    "top_third_pressure_count",
+    "top_third_pressure_turnover_rate",
 ]
 
 SHOT_COUNT_COLS = [
@@ -450,7 +486,7 @@ def get_included_extension_features(
 
 
 def carry_forward_cumulative_features(df: pd.DataFrame, cumulative_cols: list[str]) -> pd.DataFrame:
-    valid_cols = [col for col in cumulative_cols if col in df.columns]
+    valid_cols = list(dict.fromkeys(col for col in cumulative_cols if col in df.columns))
     if not valid_cols:
         return df
 
@@ -883,6 +919,20 @@ def build_pressure_features() -> pd.DataFrame:
     pressure = read_csv_with_nulls(PRESSURE_FILE)
     pressure = add_checkpoint_columns(pressure)
     pressure["accurate_bool"] = parse_bool(pressure["accurate"])
+    pressure["press_induced_outcome"] = (
+        pressure["press_induced_outcome"].astype("string").str.strip().str.lower()
+    )
+    pressure["stage"] = pressure["stage"].astype("string").str.strip().str.lower()
+    pressure["pass_angle"] = pd.to_numeric(pressure["pass_angle"], errors="coerce")
+    pressure["abs_pass_angle"] = pressure["pass_angle"].abs()
+    pressure["pressure_turnover"] = pressure["press_induced_outcome"].eq("turnover").fillna(False).astype(int)
+    pressure["pressure_forward"] = pressure["press_induced_outcome"].eq("forward_pass").fillna(False).astype(int)
+    pressure["pressure_backward"] = pressure["press_induced_outcome"].eq("backward_pass").fillna(False).astype(int)
+    pressure["pressure_ball_carry"] = pressure["press_induced_outcome"].eq("ball_carry").fillna(False).astype(int)
+    pressure["top_third_pressure"] = pressure["stage"].eq("top").fillna(False).astype(int)
+    pressure["top_third_pressure_turnover"] = (
+        pressure["top_third_pressure"] * pressure["pressure_turnover"]
+    )
 
     pressured = (
         pressure.groupby(
@@ -892,11 +942,26 @@ def build_pressure_features() -> pd.DataFrame:
         .agg(
             last_15_times_pressured=("accurate_bool", "size"),
             last_15_pressured_succ=("accurate_bool", "sum"),
+            last15_pressure_events=("id", "size"),
+            last15_pressure_turnovers=("pressure_turnover", "sum"),
+            last15_pressure_forward=("pressure_forward", "sum"),
+            last15_pressure_backward=("pressure_backward", "sum"),
+            last15_pressure_ball_carry=("pressure_ball_carry", "sum"),
+            last15_abs_pass_angle_sum=("abs_pass_angle", "sum"),
+            last15_abs_pass_angle_count=("abs_pass_angle", "count"),
+            last15_top_third_pressure_turnovers=("top_third_pressure_turnover", "sum"),
+            top_third_pressure_count=("top_third_pressure", "sum"),
         )
     )
     pressured["last_15_pressured_unsucc"] = (
         pressured["last_15_times_pressured"] - pressured["last_15_pressured_succ"]
     )
+    pressured["last15_pressure_turnover_rate"] = (
+        pressured["last15_pressure_turnovers"] / pressured["last15_pressure_events"].replace(0, pd.NA)
+    ).fillna(0.0)
+    pressured["last15_pressure_forward_rate"] = (
+        pressured["last15_pressure_forward"] / pressured["last15_pressure_events"].replace(0, pd.NA)
+    ).fillna(0.0)
     pressured = pressured.sort_values(
         ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket"]
     )
@@ -909,13 +974,80 @@ def build_pressure_features() -> pd.DataFrame:
     pressured["cumul_pressured_unsucc"] = (
         pressured.groupby("player_appearance_id")["last_15_pressured_unsucc"].cumsum()
     )
+    pressured["cumul_pressure_events"] = (
+        pressured.groupby("player_appearance_id")["last15_pressure_events"].cumsum()
+    )
+    pressured["cumul_pressure_turnovers"] = (
+        pressured.groupby("player_appearance_id")["last15_pressure_turnovers"].cumsum()
+    )
+    pressured["cumul_pressure_forward"] = (
+        pressured.groupby("player_appearance_id")["last15_pressure_forward"].cumsum()
+    )
+    pressured["cumul_pressure_backward"] = (
+        pressured.groupby("player_appearance_id")["last15_pressure_backward"].cumsum()
+    )
+    pressured["cumul_pressure_ball_carry"] = (
+        pressured.groupby("player_appearance_id")["last15_pressure_ball_carry"].cumsum()
+    )
+    pressured["cumul_abs_pass_angle_sum"] = (
+        pressured.groupby("player_appearance_id")["last15_abs_pass_angle_sum"].cumsum()
+    )
+    pressured["cumul_abs_pass_angle_count"] = (
+        pressured.groupby("player_appearance_id")["last15_abs_pass_angle_count"].cumsum()
+    )
+    pressured["cumul_top_third_pressure_turnovers"] = (
+        pressured.groupby("player_appearance_id")["last15_top_third_pressure_turnovers"].cumsum()
+    )
+    pressured["top_third_pressure_count"] = (
+        pressured.groupby("player_appearance_id")["top_third_pressure_count"].cumsum()
+    )
     pressured["last_15_pressured_success_rate"] = (
         pressured["last_15_pressured_succ"] / pressured["last_15_times_pressured"]
     ).fillna(0.0)
     pressured["cumul_pressured_success_rate"] = (
         pressured["cumul_pressured_succ"] / pressured["cumul_times_pressured"]
     ).fillna(0.0)
-    pressured = pressured.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
+    pressured["cumul_pressure_turnover_rate"] = (
+        pressured["cumul_pressure_turnovers"] / pressured["cumul_pressure_events"].replace(0, pd.NA)
+    ).fillna(0.0)
+    pressured["cumul_pressure_forward_rate"] = (
+        pressured["cumul_pressure_forward"] / pressured["cumul_pressure_events"].replace(0, pd.NA)
+    ).fillna(0.0)
+    pressured["pressure_forward_minus_backward"] = (
+        pressured["cumul_pressure_forward"] - pressured["cumul_pressure_backward"]
+    )
+    pressured["pressure_escape_score"] = (
+        pressured["cumul_pressure_forward"]
+        + pressured["cumul_pressure_ball_carry"]
+        - pressured["cumul_pressure_turnovers"]
+        - pressured["cumul_pressure_backward"]
+    )
+    pressured["mean_abs_pass_angle_under_pressure"] = (
+        pressured["cumul_abs_pass_angle_sum"] / pressured["cumul_abs_pass_angle_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    pressured["top_third_pressure_turnover_rate"] = (
+        pressured["cumul_top_third_pressure_turnovers"] / pressured["top_third_pressure_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    pressured = pressured.drop(
+        columns=[
+            "checkpoint_period_order",
+            "checkpoint_bucket",
+            "last15_pressure_turnovers",
+            "last15_pressure_forward",
+            "last15_pressure_backward",
+            "last15_pressure_ball_carry",
+            "last15_abs_pass_angle_sum",
+            "last15_abs_pass_angle_count",
+            "last15_top_third_pressure_turnovers",
+            "cumul_pressure_turnovers",
+            "cumul_pressure_forward",
+            "cumul_pressure_backward",
+            "cumul_pressure_ball_carry",
+            "cumul_abs_pass_angle_sum",
+            "cumul_abs_pass_angle_count",
+            "cumul_top_third_pressure_turnovers",
+        ]
+    )
 
     pressure_applied = pressure[pressure["pressing_player_appearance_id"].notna()].copy()
     pressure_applied["pressing_player_appearance_id"] = (
@@ -1466,12 +1598,18 @@ def main() -> None:
         base = base.merge(pressure_features, on=["player_appearance_id", "checkpoint"], how="left")
         base = carry_forward_cumulative_features(
             base,
-            [col for col in pressure_features.columns if is_cumul_feature(col)],
+            [col for col in pressure_features.columns if is_cumul_feature(col)] + PRESSURE_CARRY_FORWARD_COLS,
         )
         for col in PRESSURE_COUNT_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0).astype(int)
+        for col in PRESSURE_CONTEXT_COUNT_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0).astype(int)
         for col in PRESSURE_RATE_COLS:
+            if col in base.columns:
+                base[col] = base[col].fillna(0.0)
+        for col in PRESSURE_CONTEXT_VALUE_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0.0)
 
