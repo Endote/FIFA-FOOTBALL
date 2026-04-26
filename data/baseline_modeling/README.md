@@ -26,3 +26,10 @@ train  1917        20                 499      266        109       0.056860   0
 - `cumul_shots_total`
 - `cumul_shots_blocked`
 - `cumul_shots_under_pressure`
+- `player_share_team_cumul_shots`
+- `player_share_team_shots_on_target`
+- `player_share_team_top_distance`
+- `player_rank_team_cumul_shots`
+- `player_rank_team_top_distance_share`
+- `player_z_team_top_distance_share`
+- `player_z_team_shots_total`

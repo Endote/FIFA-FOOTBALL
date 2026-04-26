@@ -2,12 +2,12 @@
   "status": "ok",
   "result": {
     "model_name": "decision_tree",
-    "val_average_precision": 0.13335199838042774,
-    "val_auroc": 0.7035242127153891,
-    "val_brier_score": 0.24244656600062248,
-    "test_average_precision": 0.09761312170513747,
-    "test_auroc": 0.6774496415158757,
-    "test_brier_score": 0.2732840814117401
+    "val_average_precision": 0.10612847537901908,
+    "val_auroc": 0.6504196375519905,
+    "val_brier_score": 0.23830664167025695,
+    "test_average_precision": 0.07639037867378622,
+    "test_auroc": 0.6354557869580062,
+    "test_brier_score": 0.2741471018508048
   },
   "accelerator": {
     "preferred": "mps",

@@ -39,7 +39,18 @@ KEEP_BASE_MODEL = [
 
     "cumul_shots_blocked",
     "cumul_shots_under_pressure",
-    
+
+    "player_share_team_cumul_shots",
+    "player_share_team_shots_on_target",
+    "player_share_team_top_distance",
+    "player_rank_team_cumul_shots",
+    "player_rank_team_top_distance_share",
+    "player_z_team_top_distance_share",
+    "player_z_team_shots_total",
+    # "team_total_cumul_shots",
+    # "team_total_top_runs",
+    # "opponent_total_cumul_shots",
+    # "team_minus_opponent_shot_load",
 
 ]
 
@@ -214,6 +225,17 @@ SHOT_RATE_COLS = [
     "last_15_shots_under_pressure_rate",
     "cumul_shots_under_pressure_rate",
 ]
+TEAM_BASE_CONTEXT_FEATURE_COLS = [
+    "player_share_team_shots_on_target",
+]
+TEAM_SHOT_CONTEXT_FEATURE_COLS = [
+    "player_share_team_cumul_shots",
+    "player_rank_team_cumul_shots",
+    "player_z_team_shots_total",
+    "team_total_cumul_shots",
+    "opponent_total_cumul_shots",
+    "team_minus_opponent_shot_load",
+]
 SHOT_CUMUL_COUNT_COLS = [
     "cumul_shots_total",
     "cumul_shots_special",
@@ -271,6 +293,12 @@ RUN_POSSESSION_COLS = [
     "possessions_with_2plus_top_runs",
     "possessions_with_sprint_and_hsr",
     "top_run_repeat_possession_rate",
+]
+TEAM_RUN_CONTEXT_FEATURE_COLS = [
+    "player_share_team_top_distance",
+    "player_rank_team_top_distance_share",
+    "player_z_team_top_distance_share",
+    "team_total_top_runs",
 ]
 RUN_CUMUL_COLS = [
     "cumul_top_sprint_count",
@@ -357,15 +385,17 @@ def filter_model_columns_by_window(
 
 
 def get_source_feature_columns(selected_sources: set[str]) -> list[str]:
-    feature_cols: list[str] = []
+    feature_cols: list[str] = TEAM_BASE_CONTEXT_FEATURE_COLS.copy()
     if "passes" in selected_sources:
         feature_cols.extend(PASS_FEATURE_COLS)
     if "pressure" in selected_sources:
         feature_cols.extend(PRESSURE_COUNT_COLS + PRESSURE_RATE_COLS)
     if "runs" in selected_sources:
-        feature_cols.extend(RUN_COUNT_COLS + RUN_SHARE_COLS + RUN_DISTANCE_COLS + RUN_POSSESSION_COLS)
+        feature_cols.extend(
+            RUN_COUNT_COLS + RUN_SHARE_COLS + RUN_DISTANCE_COLS + RUN_POSSESSION_COLS + TEAM_RUN_CONTEXT_FEATURE_COLS
+        )
     if "shots" in selected_sources:
-        feature_cols.extend(SHOT_COUNT_COLS + SHOT_RATE_COLS)
+        feature_cols.extend(SHOT_COUNT_COLS + SHOT_RATE_COLS + TEAM_SHOT_CONTEXT_FEATURE_COLS)
     return feature_cols
 
 
@@ -429,6 +459,99 @@ def carry_forward_cumulative_features(df: pd.DataFrame, cumulative_cols: list[st
     out = out.sort_values(["player_appearance_id", "_checkpoint_order"]).copy()
     out[valid_cols] = out.groupby("player_appearance_id")[valid_cols].ffill()
     out = out.sort_index().drop(columns=["_checkpoint_order"])
+    return out
+
+
+def safe_group_share(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    return (numerator / denominator.replace(0, pd.NA)).fillna(0.0)
+
+
+def add_team_level_context_features(base: pd.DataFrame) -> pd.DataFrame:
+    group_keys = ["fixture_id", "checkpoint", "is_home"]
+    required_group_cols = set(group_keys)
+    if not required_group_cols.issubset(base.columns):
+        return base
+
+    out = base.copy()
+
+    shot_source_cols = ["cumul_shots_total", "cumul_shots_on_target"]
+    run_source_cols = ["top_distance_share", "cumul_top_sprint_count", "cumul_top_hsr_count"]
+
+    for col in shot_source_cols + run_source_cols:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+
+    if "cumul_shots_total" in out.columns:
+        out["team_total_cumul_shots"] = out.groupby(group_keys)["cumul_shots_total"].transform("sum")
+        out["player_share_team_cumul_shots"] = safe_group_share(
+            out["cumul_shots_total"],
+            out["team_total_cumul_shots"],
+        )
+        out["player_rank_team_cumul_shots"] = (
+            out.groupby(group_keys)["cumul_shots_total"]
+            .rank(method="dense", ascending=False)
+            .fillna(0)
+            .astype(int)
+        )
+        shot_means = out.groupby(group_keys)["cumul_shots_total"].transform("mean")
+        shot_stds = out.groupby(group_keys)["cumul_shots_total"].transform(lambda s: s.std(ddof=0))
+        shot_stds = pd.to_numeric(shot_stds, errors="coerce").mask(lambda s: s == 0)
+        out["player_z_team_shots_total"] = (
+            (out["cumul_shots_total"] - shot_means).div(shot_stds).fillna(0.0)
+        )
+
+        opponent_shots = (
+            out[group_keys + ["team_total_cumul_shots"]]
+            .drop_duplicates()
+            .rename(
+                columns={
+                    "is_home": "opponent_is_home",
+                    "team_total_cumul_shots": "opponent_total_cumul_shots",
+                }
+            )
+        )
+        opponent_shots["is_home"] = ~opponent_shots["opponent_is_home"].astype(bool)
+        opponent_shots = opponent_shots.drop(columns=["opponent_is_home"])
+        out = out.merge(opponent_shots, on=group_keys, how="left")
+        out["opponent_total_cumul_shots"] = out["opponent_total_cumul_shots"].fillna(0.0)
+        out["team_minus_opponent_shot_load"] = (
+            out["team_total_cumul_shots"] - out["opponent_total_cumul_shots"]
+        )
+
+    if "cumul_shots_on_target" in out.columns:
+        team_total_cumul_shots_on_target = out.groupby(group_keys)["cumul_shots_on_target"].transform("sum")
+        out["player_share_team_shots_on_target"] = safe_group_share(
+            out["cumul_shots_on_target"],
+            team_total_cumul_shots_on_target,
+        )
+
+    if {"cumul_top_sprint_count", "cumul_top_hsr_count"}.issubset(out.columns):
+        out["_player_cumul_top_runs"] = out["cumul_top_sprint_count"] + out["cumul_top_hsr_count"]
+        out["team_total_top_runs"] = out.groupby(group_keys)["_player_cumul_top_runs"].transform("sum")
+        out = out.drop(columns=["_player_cumul_top_runs"])
+
+    if "top_distance_share" in out.columns:
+        team_total_top_distance_share = out.groupby(group_keys)["top_distance_share"].transform("sum")
+        out["player_share_team_top_distance"] = safe_group_share(
+            out["top_distance_share"],
+            team_total_top_distance_share,
+        )
+        out["player_rank_team_top_distance_share"] = (
+            out.groupby(group_keys)["top_distance_share"]
+            .rank(method="dense", ascending=False)
+            .fillna(0)
+            .astype(int)
+        )
+        top_distance_means = out.groupby(group_keys)["top_distance_share"].transform("mean")
+        top_distance_stds = (
+            out.groupby(group_keys)["top_distance_share"]
+            .transform(lambda s: s.std(ddof=0))
+        )
+        top_distance_stds = pd.to_numeric(top_distance_stds, errors="coerce").mask(lambda s: s == 0)
+        out["player_z_team_top_distance_share"] = (
+            (out["top_distance_share"] - top_distance_means).div(top_distance_stds).fillna(0.0)
+        )
+
     return out
 
 
@@ -1385,6 +1508,8 @@ def main() -> None:
         for col in SHOT_RATE_COLS:
             if col in base.columns:
                 base[col] = base[col].fillna(0.0)
+
+    base = add_team_level_context_features(base)
 
     filtered_base, removed_rows = apply_row_filters(base)
 

@@ -7,10 +7,10 @@
   "corr_threshold": 0.85,
   "top_n": 100,
   "metrics": {
-    "average_precision": 0.16092988993422988,
-    "auroc": 0.8146124957323319,
-    "brier": 0.06733753780320624,
-    "balanced_accuracy_0_5": 0.568055081370206
+    "average_precision": 0.13379260392041195,
+    "auroc": 0.8169454876522135,
+    "brier": 0.06639849190063295,
+    "balanced_accuracy_0_5": 0.551638784568112
   },
   "model_name": "catboost",
   "output_dir": "output/feature_diagnostics/fit_train-val__explain_test",
