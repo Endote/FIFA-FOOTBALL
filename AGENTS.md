@@ -4,8 +4,7 @@ TAKE CURRENT REPO STATE AS GRANTED, if something was not done via agent interfac
 
 ADD each raw source derrived metrics properly in the merge-sources and parse_merge_sources in the `create_baseline_modeling_dataset` file.
 
-after new feature engineering rebuild the data with all sources by default.
-
+Do not rebuild the new datasets automatically, let the user manually validate teh flow always, we dont need these tokens burning.
 
 
 ## Modeling Pipeline Standards

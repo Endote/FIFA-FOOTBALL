@@ -20,27 +20,103 @@ TRAIN_SHARE_TARGET = 0.60
 VAL_SHARE_TARGET = 0.20
 TEST_SHARE_TARGET = 0.20
 
-DROP_FROM_MODEL = [
-    "player_appearance_id",
-    "player_id",
+KEEP_BASE_MODEL = [
+    "position",
+    "checkpoint",
+    "formation",
+
+    "cumul_received_unsucc",
+
+    "cumul_in_game_time",
+
+    "top_distance_share",
+    "avg_top_sprint_distance",
+
+    "possessions_with_2plus_runs",
+    
+    "cumul_shots_on_target",
+    "cumul_shots_total",
+
+    "cumul_shots_blocked",
+    "cumul_shots_under_pressure",
+    
+
+]
+
+
+
+STRUCTURAL_DROP_ALWAYS = [
     "fixture_id",
     "date",
+    "player_id",
     "jersey_number",
+    "player_appearance_id",
+    "id",
     "checkpoint_period",
     "checkpoint_min",
-    "fixture_order",
+    "is_home",
     "minute_in",
     "minute_out",
-    "subbed",
-
-    "cumul_distance",
     "cumul_mean_max_speed",
-    "last15_distance",
-    "last15_mean_max_speed",
-    "last15_peak_speed",
     "cumul_peak_speed",
-    "last15_hsr",
-    "cumul_hsr",
+
+    "last15_top_sprint_count",
+    "last15_middle_sprint_count",
+    "last15_middle_hsr_count",
+    "last15_bottom_sprint_count",
+    "last15_bottom_hsr_count",
+    "cumul_bottom_sprint_count",
+    "cumul_bottom_hsr_count",
+    "cumul_top_sprint_count",
+    "cumul_top_hsr_count",
+    "cumul_middle_sprint_count",
+    "cumul_middle_hsr_count",
+
+    "cumul_pressures_applied",
+    "cumul_pressures_won",
+    "cumul_pressures_lost",
+
+    "last_15_shots_special",
+    "last_15_shots_set_play",
+    "cumul_shots_special",
+    "cumul_shots_set_play",
+
+    # "cumul_top_run_share",
+    "cumul_middle_run_share",
+    "cumul_bottom_run_share",
+    "cumul_top_sprint_share",
+    # "cumul_top_hsr_share",
+
+    "top_run_repeat_possession_rate",
+    "cumul_unique_run_possessions",
+    "last15_unique_run_possessions",
+    "runs_per_possession",
+    "sprints_per_possession",
+
+    "cumul_pressured_success_rate",
+
+    # "last15_top_run_share",
+    "last15_top_sprint_share",
+    # "share_of_possessions_with_top_run",
+    "share_of_possessions_with_sprint",
+    "top_runs_per_possession",
+    "possessions_with_2plus_top_runs",
+    "top_sprint_distance",
+    "top_hsr_distance",
+    "distance_per_run",
+    "distance_per_possession",
+    "sprint_distance_share",
+    "last15_top_hsr_count",
+
+    "possessions_with_sprint_and_hsr",
+    "cumul_pressure_success_rate",
+    "last_15_pressured_success_rate",
+    "last_15_pressure_success_rate",
+
+    "cumul_top_hsr_share",
+    "cumul_top_run_share",
+    "last15_top_run_share",
+
 ]
 
 TARGET_COL = "scored_after"
@@ -81,6 +157,22 @@ PASS_FEATURE_COLS = [
     "last_15_received_unsucc",
     "cumul_received_succ",
     "cumul_received_unsucc",
+    "cumul_pass_top_count",
+    "cumul_pass_middle_count",
+    "cumul_pass_top_accuracy_rate",
+    "cumul_pass_middle_accuracy_rate",
+]
+PASS_COUNT_COLS = [
+    "last_15_received_succ",
+    "last_15_received_unsucc",
+    "cumul_received_succ",
+    "cumul_received_unsucc",
+    "cumul_pass_top_count",
+    "cumul_pass_middle_count",
+]
+PASS_RATE_COLS = [
+    "cumul_pass_top_accuracy_rate",
+    "cumul_pass_middle_accuracy_rate",
 ]
 
 PRESSURE_COUNT_COLS = [
@@ -162,6 +254,8 @@ RUN_DISTANCE_COLS = [
     "distance_per_run",
     "distance_per_possession",
     "top_distance_share",
+    "middle_distance_share",
+    "bottom_distance_share",
     "sprint_distance_share",
     "avg_top_sprint_distance",
 ]
@@ -281,6 +375,48 @@ def get_added_extension_features(selected_sources: set[str], window_mode: str) -
         target_col=TARGET_COL,
         window_mode=window_mode,
     )
+
+
+def build_model_keep_columns(
+    dataset_columns: list[str],
+    selected_sources: set[str],
+    window_mode: str,
+) -> list[str]:
+    structural_drop = set(STRUCTURAL_DROP_ALWAYS + ["split", "fixture_order"])
+
+    if not KEEP_BASE_MODEL:
+        return filter_model_columns_by_window(
+            columns=[
+                col
+                for col in dataset_columns
+                if col not in structural_drop
+            ],
+            target_col=TARGET_COL,
+            window_mode=window_mode,
+        )
+
+    desired_columns = filter_model_columns_by_window(
+        columns=KEEP_BASE_MODEL + [TARGET_COL],
+        target_col=TARGET_COL,
+        window_mode=window_mode,
+    )
+
+    available = set(dataset_columns)
+    keep: list[str] = []
+    seen: set[str] = set()
+    for col in desired_columns:
+        if col in available and col not in structural_drop and col not in seen:
+            keep.append(col)
+            seen.add(col)
+    return keep
+
+
+def get_included_extension_features(
+    model_columns: list[str],
+    selected_sources: set[str],
+) -> list[str]:
+    source_feature_set = set(get_source_feature_columns(selected_sources))
+    return [col for col in model_columns if col in source_feature_set]
 
 
 def carry_forward_cumulative_features(df: pd.DataFrame, cumulative_cols: list[str]) -> pd.DataFrame:
@@ -516,14 +652,81 @@ def read_csv_with_nulls(path: Path) -> pd.DataFrame:
 def build_received_pass_features() -> pd.DataFrame:
     passes = read_csv_with_nulls(PASS_FILE)
     passes = passes[passes["stage"].isin(["top", "middle"])].copy()
-    passes = passes[passes["addressee_player_appearance_id"].notna()].copy()
-    passes["addressee_player_appearance_id"] = passes["addressee_player_appearance_id"].astype(int)
-    passes = add_checkpoint_columns(passes)
-    passes["received_succ"] = parse_bool(passes["accurate"]).astype(int)
-    passes["received_unsucc"] = 1 - passes["received_succ"]
+    sender_passes = add_checkpoint_columns(passes)
+    sender_passes["accurate_bool"] = parse_bool(sender_passes["accurate"]).astype(int)
 
-    last15 = (
-        passes.groupby(
+    sender_grouped = (
+        sender_passes.groupby(
+            ["player_appearance_id", "checkpoint", "checkpoint_period_order", "checkpoint_bucket"],
+            as_index=False,
+        )
+        .agg(
+            last_15_pass_top_count=(
+                "id",
+                lambda s: int((sender_passes.loc[s.index, "stage"] == "top").sum()),
+            ),
+            last_15_pass_top_succ=(
+                "accurate_bool",
+                lambda s: int(
+                    sender_passes.loc[s.index, "accurate_bool"][sender_passes.loc[s.index, "stage"] == "top"].sum()
+                ),
+            ),
+            last_15_pass_middle_count=(
+                "id",
+                lambda s: int((sender_passes.loc[s.index, "stage"] == "middle").sum()),
+            ),
+            last_15_pass_middle_succ=(
+                "accurate_bool",
+                lambda s: int(
+                    sender_passes.loc[s.index, "accurate_bool"][
+                        sender_passes.loc[s.index, "stage"] == "middle"
+                    ].sum()
+                ),
+            ),
+        )
+    )
+    sender_grouped = sender_grouped.sort_values(
+        ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket"]
+    )
+    sender_grouped["cumul_pass_top_count"] = (
+        sender_grouped.groupby("player_appearance_id")["last_15_pass_top_count"].cumsum()
+    )
+    sender_grouped["cumul_pass_top_succ"] = (
+        sender_grouped.groupby("player_appearance_id")["last_15_pass_top_succ"].cumsum()
+    )
+    sender_grouped["cumul_pass_middle_count"] = (
+        sender_grouped.groupby("player_appearance_id")["last_15_pass_middle_count"].cumsum()
+    )
+    sender_grouped["cumul_pass_middle_succ"] = (
+        sender_grouped.groupby("player_appearance_id")["last_15_pass_middle_succ"].cumsum()
+    )
+    sender_grouped["cumul_pass_top_accuracy_rate"] = (
+        sender_grouped["cumul_pass_top_succ"] / sender_grouped["cumul_pass_top_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    sender_grouped["cumul_pass_middle_accuracy_rate"] = (
+        sender_grouped["cumul_pass_middle_succ"] / sender_grouped["cumul_pass_middle_count"].replace(0, pd.NA)
+    ).fillna(0.0)
+    sender_grouped = sender_grouped.drop(
+        columns=[
+            "checkpoint_period_order",
+            "checkpoint_bucket",
+            "last_15_pass_top_count",
+            "last_15_pass_top_succ",
+            "last_15_pass_middle_count",
+            "last_15_pass_middle_succ",
+            "cumul_pass_top_succ",
+            "cumul_pass_middle_succ",
+        ]
+    )
+
+    receiver_passes = passes[passes["addressee_player_appearance_id"].notna()].copy()
+    receiver_passes["addressee_player_appearance_id"] = receiver_passes["addressee_player_appearance_id"].astype(int)
+    receiver_passes = add_checkpoint_columns(receiver_passes)
+    receiver_passes["received_succ"] = parse_bool(receiver_passes["accurate"]).astype(int)
+    receiver_passes["received_unsucc"] = 1 - receiver_passes["received_succ"]
+
+    receiver_grouped = (
+        receiver_passes.groupby(
             [
                 "addressee_player_appearance_id",
                 "checkpoint",
@@ -539,16 +742,18 @@ def build_received_pass_features() -> pd.DataFrame:
         .rename(columns={"addressee_player_appearance_id": "player_appearance_id"})
     )
 
-    last15 = last15.sort_values(
+    receiver_grouped = receiver_grouped.sort_values(
         ["player_appearance_id", "checkpoint_period_order", "checkpoint_bucket"]
     )
-    last15["cumul_received_succ"] = (
-        last15.groupby("player_appearance_id")["last_15_received_succ"].cumsum()
+    receiver_grouped["cumul_received_succ"] = (
+        receiver_grouped.groupby("player_appearance_id")["last_15_received_succ"].cumsum()
     )
-    last15["cumul_received_unsucc"] = (
-        last15.groupby("player_appearance_id")["last_15_received_unsucc"].cumsum()
+    receiver_grouped["cumul_received_unsucc"] = (
+        receiver_grouped.groupby("player_appearance_id")["last_15_received_unsucc"].cumsum()
     )
-    return last15.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
+    receiver_grouped = receiver_grouped.drop(columns=["checkpoint_period_order", "checkpoint_bucket"])
+
+    return receiver_grouped.merge(sender_grouped, on=["player_appearance_id", "checkpoint"], how="outer")
 
 
 def build_pressure_features() -> pd.DataFrame:
@@ -792,6 +997,22 @@ def build_run_features() -> pd.DataFrame:
                     ].sum()
                 ),
             ),
+            safe_middle_total_distance=(
+                "distance",
+                lambda s: float(
+                    safe_runs.loc[s.index, "distance"][
+                        safe_runs.loc[s.index, "stage"] == "middle"
+                    ].sum()
+                ),
+            ),
+            safe_bottom_total_distance=(
+                "distance",
+                lambda s: float(
+                    safe_runs.loc[s.index, "distance"][
+                        safe_runs.loc[s.index, "stage"] == "bottom"
+                    ].sum()
+                ),
+            ),
             safe_top_sprint_count=(
                 "id",
                 lambda s: int(
@@ -884,6 +1105,8 @@ def build_run_features() -> pd.DataFrame:
         "safe_run_count",
         "safe_total_sprint_distance",
         "safe_top_total_distance",
+        "safe_middle_total_distance",
+        "safe_bottom_total_distance",
         "safe_top_sprint_count",
         "safe_unique_possessions",
         "last15_unique_run_possessions",
@@ -986,6 +1209,12 @@ def build_run_features() -> pd.DataFrame:
     grouped["top_distance_share"] = (
         grouped["safe_top_total_distance"] / grouped["safe_total_distance"].replace(0, pd.NA)
     ).fillna(0.0)
+    grouped["middle_distance_share"] = (
+        grouped["safe_middle_total_distance"] / grouped["safe_total_distance"].replace(0, pd.NA)
+    ).fillna(0.0)
+    grouped["bottom_distance_share"] = (
+        grouped["safe_bottom_total_distance"] / grouped["safe_total_distance"].replace(0, pd.NA)
+    ).fillna(0.0)
     grouped["sprint_distance_share"] = (
         grouped["safe_total_sprint_distance"] / grouped["safe_total_distance"].replace(0, pd.NA)
     ).fillna(0.0)
@@ -1029,6 +1258,8 @@ def build_run_features() -> pd.DataFrame:
             "safe_run_count",
             "safe_total_sprint_distance",
             "safe_top_total_distance",
+            "safe_middle_total_distance",
+            "safe_bottom_total_distance",
             "safe_top_sprint_count",
             "safe_unique_possessions",
             "possessions_with_top_run",
@@ -1164,13 +1395,13 @@ def main() -> None:
         how="left",
     )
 
-    model_columns = [col for col in dataset.columns if col not in DROP_FROM_MODEL]
-    model_columns = filter_model_columns_by_window(
-        columns=model_columns,
-        target_col=TARGET_COL,
+    model_columns = build_model_keep_columns(
+        dataset_columns=dataset.columns.tolist(),
+        selected_sources=selected_sources,
         window_mode=window_mode,
     )
-    model_dataset = dataset[model_columns].copy()
+    included_extension_features = get_included_extension_features(model_columns, selected_sources)
+    model_dataset = dataset[model_columns + ["split"]].copy()
     model_dataset_export = model_dataset.drop(columns=["split"]).copy()
 
     split_summary = summarize_split(dataset)
@@ -1190,11 +1421,11 @@ def main() -> None:
             "role": [
                 "target"
                 if col == TARGET_COL
-                else "dropped_from_model"
-                if col in DROP_FROM_MODEL
-                else "split_metadata"
-                if col == "split"
                 else "predictor"
+                if col in model_columns
+                else "split_metadata"
+                if col in {"split", "fixture_order"}
+                else "excluded_from_model"
                 for col in dataset.columns
             ],
         }
@@ -1219,7 +1450,7 @@ def main() -> None:
 
 ## Added baseline extension features
 
-{chr(10).join([f"- `{c}`" for c in get_added_extension_features(selected_sources, window_mode)]) if selected_sources else "- none"}
+{chr(10).join([f"- `{c}`" for c in included_extension_features]) if included_extension_features else "- none"}
 """
 
     (OUTPUT_DIR / "README.md").write_text(summary_md)
@@ -1240,8 +1471,10 @@ def main() -> None:
     print(split_summary.to_string(index=False))
     print()
     print("## Added baseline extension features")
-    for col in get_added_extension_features(selected_sources, window_mode):
+    for col in included_extension_features:
         print(f"- {col}")
+    if not included_extension_features:
+        print("- none")
 
 
 if __name__ == "__main__":

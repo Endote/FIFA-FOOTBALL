@@ -28,6 +28,16 @@ from sklearn.tree import DecisionTreeClassifier, export_text, plot_tree
 import matplotlib.pyplot as plt
 
 
+STRUCTURAL_DROP_ALWAYS = [
+    "fixture_id",
+    "date",
+    "player_id",
+    "jersey_number",
+    "player_appearance_id",
+    "id",
+]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train Decision Tree on cleaned checkpoint dataset only."
@@ -151,12 +161,8 @@ def main() -> None:
 
     target_col = "scored_after"
 
-    drop_cols = [target_col, "date"]  # avoid leakage from raw date if present
-    existing_drop_cols = [c for c in drop_cols if c in df.columns]
-
-    # Keep fixture_id for group-aware splitting, but exclude from training features.
     fixture_series = df["fixture_id"] if "fixture_id" in df.columns else None
-    feature_drop_cols = existing_drop_cols + [c for c in ["fixture_id"] if c in df.columns]
+    feature_drop_cols = [c for c in [target_col] + STRUCTURAL_DROP_ALWAYS if c in df.columns]
 
     X = df.drop(columns=feature_drop_cols).copy()
     y = df[target_col].copy()

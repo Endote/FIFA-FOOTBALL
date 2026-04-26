@@ -446,7 +446,7 @@ def write_summary(
         "## Top SHAP features",
         "",
     ]
-    for feature, value in raw_importance.head(15).items():
+    for feature, value in raw_importance.head(100).items():
         lines.append(f"- `{feature}`: `{value:.6f}`")
 
     lines.extend(
@@ -507,7 +507,7 @@ def main() -> None:
         default=0.85,
         help="Absolute Spearman-correlation threshold used to flag redundancy candidates.",
     )
-    parser.add_argument("--top-n", type=int, default=20, help="Top-N features/pairs to show in plots.")
+    parser.add_argument("--top-n", type=int, default=100, help="Top-N features/pairs to show in plots.")
     args = parser.parse_args()
 
     load_env_file()

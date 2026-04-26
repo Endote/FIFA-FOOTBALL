@@ -2,12 +2,12 @@
   "status": "ok",
   "result": {
     "model_name": "catboost",
-    "val_average_precision": 0.16936646297197655,
-    "val_auroc": 0.7423871063576946,
-    "val_brier_score": 0.07560385461000538,
-    "test_average_precision": 0.09592731798908338,
-    "test_auroc": 0.7435984977808126,
-    "test_brier_score": 0.06804008486005585
+    "val_average_precision": 0.1783374198076282,
+    "val_auroc": 0.7595439691027925,
+    "val_brier_score": 0.08224047383547362,
+    "test_average_precision": 0.2102777033754571,
+    "test_auroc": 0.8346989871400934,
+    "test_brier_score": 0.0755104275055729
   },
   "accelerator": {
     "preferred": "mps",

@@ -1,0 +1,13 @@
+,mean_abs_shap,raw_feature
+cumul_received_unsucc,0.3664353262405986,cumul_received_unsucc
+position,0.273366625743904,position
+formation,0.2524388654890537,formation
+top_distance_share,0.11851993073500572,top_distance_share
+checkpoint,0.10226509623303814,checkpoint
+avg_top_sprint_distance,0.0722277637709432,avg_top_sprint_distance
+cumul_in_game_time,0.0553940146826183,cumul_in_game_time
+possessions_with_2plus_runs,0.054595890151258,possessions_with_2plus_runs
+cumul_shots_blocked,0.0268749659753358,cumul_shots_blocked
+cumul_shots_total,0.013404779443394839,cumul_shots_total
+cumul_shots_under_pressure,0.01168282437889417,cumul_shots_under_pressure
+cumul_shots_on_target,0.009101385343027606,cumul_shots_on_target

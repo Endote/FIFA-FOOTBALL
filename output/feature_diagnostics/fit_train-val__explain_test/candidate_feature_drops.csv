@@ -1,0 +1,2 @@
+candidate_drop_feature,candidate_keep_feature,abs_corr,drop_mean_abs_shap,keep_mean_abs_shap,drop_vif,keep_vif
+cumul_shots_under_pressure,cumul_shots_total,0.8887597695865174,0.01168282437889417,0.013404779443394839,5.059395348721837,7.850102267676644

@@ -36,6 +36,15 @@ TARGET_COL = "scored_after"
 SPLIT_COL = "split"
 RANDOM_STATE = 42
 
+# Models to train in this run
+MODELS_TO_RUN = [
+    # "logistic_regression",
+    "decision_tree",
+    # "hist_gradient_boosting",
+    "xgboost",
+    "catboost",
+]
+
 # Logistic Regression hyperparameters
 LOGISTIC_REGRESSION_PARAMS = {
     "class_weight": "balanced",
@@ -88,20 +97,26 @@ XGBOOST_PARAMS = {
 # CatBoost hyperparameters
 CATBOOST_PARAMS = {
     "loss_function": "Logloss",
-    "eval_metric": "PRAUC",
-    "iterations": 3000,
+    "eval_metric": "PRAUC:type=Classic;use_weights=false",
+    "custom_metric": [
+        "PRAUC:type=Classic;use_weights=false",
+        "AUC:type=Classic;use_weights=false",
+        "BrierScore:use_weights=false",
+        "Logloss",
+    ],
+    "iterations": 5000,
     "learning_rate": 0.0033,
-    "depth": 4,
-    "l2_leaf_reg": 350,
+    "depth": 6,
+    "l2_leaf_reg": 850,
     "random_strength": 1,
     "early_stopping_rounds": 150,
     "random_seed": RANDOM_STATE,
     "verbose": 100,
     "boosting_type": "Ordered",
     "bootstrap_type": "Bernoulli",
-    "subsample": 0.75,
+    "subsample": 0.85,
     "leaf_estimation_method": "Newton",
-    "leaf_estimation_iterations": 10,
+    "leaf_estimation_backtracking": "AnyImprovement",
     "auto_class_weights": "SqrtBalanced",
 }
 
@@ -596,7 +611,7 @@ def get_trainers(
     categorical_cols: list[str],
     accelerator: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
+    trainers = {
         "logistic_regression": lambda: fit_logistic_regression(x_train, y_train, x_val, numeric_cols, categorical_cols),
         "decision_tree": lambda: fit_decision_tree(x_train, y_train, x_val, numeric_cols, categorical_cols),
         "hist_gradient_boosting": lambda: fit_hist_gradient_boosting(x_train, y_train, x_val, numeric_cols, categorical_cols),
@@ -604,6 +619,10 @@ def get_trainers(
         "xgboost": lambda: fit_xgboost(x_train, y_train, x_val, numeric_cols, categorical_cols, accelerator),
         "catboost": lambda: fit_catboost(x_train, y_train, x_val, categorical_cols, accelerator),
     }
+    unknown_models = [model_name for model_name in MODELS_TO_RUN if model_name not in trainers]
+    if unknown_models:
+        raise ValueError(f"MODELS_TO_RUN contains unsupported models: {unknown_models}")
+    return trainers
 
 
 def run_single_model(
@@ -735,17 +754,7 @@ def main(single_model: str | None = None, catboost_calibration: str = "none") ->
         )
         return
 
-    results, failures = run_models_in_subprocesses(
-        [
-            "logistic_regression",
-            "decision_tree",
-            "hist_gradient_boosting",
-            # "tabpfn",
-            "xgboost",
-            "catboost",
-        ],
-        catboost_calibration,
-    )
+    results, failures = run_models_in_subprocesses(MODELS_TO_RUN, catboost_calibration)
 
     if not results:
         write_failures(failures)
@@ -780,14 +789,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--single-model",
-        choices=[
-            "logistic_regression",
-            "decision_tree",
-            "hist_gradient_boosting",
-            # "tabpfn",
-            "xgboost",
-            "catboost",
-        ],
+        choices=MODELS_TO_RUN,
         default=None,
     )
     parser.add_argument(

@@ -1,0 +1,34 @@
+{
+  "started_at": "20260426_023829",
+  "accepted_drop_count": 0,
+  "accepted_drops": [],
+  "initial": {
+    "cv": {
+      "mean_average_precision": 0.2293511144320424,
+      "mean_balanced_accuracy": 0.5132035647279549,
+      "mean_auroc": 0.6997045912309091,
+      "mean_brier": 0.1108245085716715
+    },
+    "test": {
+      "average_precision": 0.13707146186021682,
+      "balanced_accuracy": 0.5,
+      "auroc": 0.7640833048822123,
+      "brier": 0.06289459710899514
+    }
+  },
+  "final_feature_count": 61,
+  "final": {
+    "cv": {
+      "mean_average_precision": 0.2293511144320424,
+      "mean_balanced_accuracy": 0.5132035647279549,
+      "mean_auroc": 0.6997045912309091,
+      "mean_brier": 0.1108245085716715
+    },
+    "test": {
+      "average_precision": 0.13707146186021682,
+      "balanced_accuracy": 0.5,
+      "auroc": 0.7640833048822123,
+      "brier": 0.06289459710899514
+    }
+  }
+}
